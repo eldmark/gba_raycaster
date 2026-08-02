@@ -1,0 +1,5 @@
+/target
+build/
+raycaster
+test_raycaster
+laberinto/target/
