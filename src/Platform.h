@@ -26,5 +26,6 @@ private:
     void* window_ = nullptr;
     void* renderer_ = nullptr;
     void* texture_ = nullptr;
+    bool sdlReady_ = false;
     int width_ = 0, height_ = 0;
 };

@@ -16,6 +16,7 @@ bool Platform::init(int w, int h, const char* title) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
+    sdlReady_ = true;
 
     SDL_Window* window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED,
                                           SDL_WINDOWPOS_CENTERED, w, h, 0);
@@ -98,5 +99,10 @@ void Platform::shutdown() {
         SDL_DestroyWindow(static_cast<SDL_Window*>(window_));
         window_ = nullptr;
     }
-    SDL_Quit();
+    // solo si el init llego a correr: main llama a shutdown() tambien cuando
+    // init() fallo, y un SDL_Quit sin SDL_Init es comportamiento indefinido.
+    if (sdlReady_) {
+        SDL_Quit();
+        sdlReady_ = false;
+    }
 }
