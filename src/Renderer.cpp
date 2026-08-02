@@ -7,18 +7,9 @@
 #include "Maze.h"
 #include "Player.h"
 #include "Raycaster.h"
+#include "Textures.h"
 
 namespace {
-
-// Colores portados de wall_color() en laberinto/src/main.rs
-uint32_t wallColor(char impact) {
-    switch (impact) {
-        case '+': return rgb(102, 191, 255);  // SKYBLUE
-        case '-': return rgb(0, 121, 241);    // BLUE
-        case '|': return rgb(0, 82, 172);     // DARKBLUE
-        default:  return rgb(130, 130, 130);  // GRAY
-    }
-}
 
 // El Rust oscurecia con (1 - d/500) sobre distancias en pixeles de mundo.
 // En celdas, 500 px / 40 px por celda = 12.5 celdas.
@@ -64,11 +55,35 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         // altura proyectada; equivale al BLOCK_SIZE*HEIGHT/d del Rust porque
         // alla d estaba en pixeles de mundo y aca perpDist esta en celdas.
         float stakeHeight = h / hit.perpDist;
-        int top = std::max(0, int(half - stakeHeight * 0.5f));
+        float exactTop = half - stakeHeight * 0.5f;
+        int top = std::max(0, int(exactTop));
         int bottom = std::min(h, int(half + stakeHeight * 0.5f));
 
-        uint32_t color = shade(wallColor(hit.impact), distanceShade(hit.perpDist));
-        fb.fillRect(x, top, 1, bottom - top, color);
+        // caras que miran a -X / -Y se espejan, si no la textura sale invertida
+        // al rodear una esquina y se nota la costura.
+        float u = hit.wallX;
+        if ((hit.side == 0 && rayX < 0.0f) || (hit.side == 1 && rayY > 0.0f)) {
+            u = 1.0f - u;
+        }
+        int texX = std::min(int(u * TEX_SIZE), TEX_SIZE - 1);
+
+        const Texture& tex = textures()[texIndex(hit.impact)];
+
+        // las caras horizontales van mas oscuras, como en Wolf3D: da volumen
+        // sin necesidad de iluminacion real.
+        float light = distanceShade(hit.perpDist) * (hit.side == 1 ? 0.7f : 1.0f);
+
+        // avance en la textura por pixel de pantalla. texPos arranca desde
+        // exactTop y no desde top, asi la textura no "resbala" cuando la pared
+        // se sale por arriba de la pantalla.
+        float step = float(TEX_SIZE) / stakeHeight;
+        float texPos = (top - exactTop) * step;
+
+        for (int y = top; y < bottom; ++y) {
+            int texY = int(texPos) & (TEX_SIZE - 1);
+            texPos += step;
+            fb.setPixel(x, y, shade(tex.px[texY * TEX_SIZE + texX], light));
+        }
     }
 }
 
