@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Raycaster.h"
 
 #include <cassert>
 #include <algorithm>
@@ -65,11 +66,20 @@ double cellDist(const Player& p, int cx, int cy) {
     return std::hypot(px - (cx + 0.5), py - (cy + 0.5));
 }
 
-// Da un frame de entrada apuntando a la celda destino. Devuelve false si el
-// jugador ya esta encima.
-bool steerToward(Game& game, int cx, int cy) {
+// Da un frame de entrada apuntando a la celda destino. Con advance en false
+// solo gira y dispara, sin acercarse: es lo que hace un jugador que tirotea a
+// distancia en vez de meterse en el cuerpo a cuerpo.
+bool steerToward(Game& game, int cx, int cy, bool advance = true,
+                 bool shoot = true) {
     const Player& p = game.player();
-    if (cellDist(p, cx, cy) < 0.25) return false;
+    if (cellDist(p, cx, cy) < 0.25) {
+        // ya encima del destino: se consume un frame igual disparando, o el
+        // llamador podria girar en vacio para siempre
+        Input in;
+        in.fire = shoot;
+        game.update(in, DT);
+        return false;
+    }
 
     double px = double(p.x) / FX_ONE, py = double(p.y) / FX_ONE;
     double want = std::atan2((cy + 0.5) - py, (cx + 0.5) - px);
@@ -82,10 +92,45 @@ bool steerToward(Game& game, int cx, int cy) {
     else if (diff < -900) in.left = true;
     // se avanza solo cuando ya se mira casi hacia el destino, o el jugador
     // describe arcos y se engancha en las esquinas
-    if (diff > -4000 && diff < 4000) in.fwd = true;
+    if (advance && diff > -4000 && diff < 4000) in.fwd = true;
+    // el gatillo va siempre apretado: el arma tiene su propia cadencia, y sin
+    // disparar el piloto muere antes de llegar a la salida
+    in.fire = shoot;
 
     game.update(in, DT);
     return true;
+}
+
+// Hay pared entre el jugador y el punto? Un enemigo tapado no se puede matar,
+// asi que el piloto debe ignorarlo en vez de dispararle a la pared para siempre.
+bool hasLineOfSight(const Game& game, fx tx, fx ty) {
+    fx dx = tx - game.player().x;
+    fx dy = ty - game.player().y;
+    double len = std::hypot(double(dx) / FX_ONE, double(dy) / FX_ONE);
+    if (len < 0.01) return true;
+    Hit h = castRay(game.maze(), game.player().x, game.player().y, dx, dy);
+    // castRay devuelve la distancia en unidades del vector que se le pasa, o
+    // sea que 1.0 es justo el enemigo
+    return h.perpDist > FX_ONE;
+}
+
+// Enemigo vivo mas cercano, o -1. El piloto lo usa para apuntar: sin esto no
+// dispara a nada y el test solo probaria que se puede huir.
+int nearestEnemy(const Game& game, double maxCells) {
+    int best = -1;
+    double bestD = maxCells;
+    for (int i = 0; i < game.enemyCount(); ++i) {
+        const Enemy& e = game.enemy(i);
+        if (!e.alive()) continue;
+        double dx = double(e.x - game.player().x) / FX_ONE;
+        double dy = double(e.y - game.player().y) / FX_ONE;
+        double d = std::hypot(dx, dy);
+        if (d >= bestD) continue;
+        if (!hasLineOfSight(game, e.x, e.y)) continue;
+        bestD = d;
+        best = i;
+    }
+    return best;
 }
 
 // Lleva al jugador hasta la salida del piso actual. Devuelve false si se
@@ -108,6 +153,22 @@ bool walkToExit(Game& game) {
             return true;
         }
         if (waypoint >= path.size()) return false;
+
+        // Si hay un guardian cerca se le apunta y se le dispara; si no, se
+        // sigue la ruta. Es lo minimo que hace un jugador real, y sin ello la
+        // run no se puede terminar.
+        int target = nearestEnemy(game, 6.0);
+        if (target >= 0) {
+            const Enemy& e = game.enemy(target);
+            double dx = double(e.x - game.player().x) / FX_ONE;
+            double dy = double(e.y - game.player().y) / FX_ONE;
+            // acercarse solo si esta lejos; dentro de 3 celdas se dispara
+            // quieto, que es como se juega de verdad
+            bool advance = std::hypot(dx, dy) > 3.0;
+            steerToward(game, fxFloorInt(e.x), fxFloorInt(e.y), advance);
+            continue;
+        }
+
         if (!steerToward(game, path[waypoint].first, path[waypoint].second)) {
             ++waypoint;
         }
@@ -127,6 +188,20 @@ int main() {
     assert(game.kills() == 0);
     assert(game.seed() == 583291u);
 
+    // Todo piso trae guardianes, y ninguno nace encima del jugador.
+    {
+        Game g;
+        g.newRun(31337u);
+        assert(g.aliveEnemies() > 0);
+        for (int i = 0; i < g.enemyCount(); ++i) {
+            const Enemy& e = g.enemy(i);
+            assert(!g.maze().isWall(fxFloorInt(e.x), fxFloorInt(e.y)));
+            double dx = double(e.x - g.player().x) / FX_ONE;
+            double dy = double(e.y - g.player().y) / FX_ONE;
+            assert(std::hypot(dx, dy) >= 4.0);
+        }
+    }
+
     // La seed 0 no es valida para el xorshift: debe sustituirse, no propagarse.
     {
         Game g;
@@ -135,13 +210,18 @@ int main() {
         assert(g.maze().width() > 0);
     }
 
-    // Dos runs con la misma seed son identicas; con otra seed, no.
+    // Dos runs con la misma seed son identicas, enemigos incluidos.
     {
         Game a, b, c;
         a.newRun(42u);
         b.newRun(42u);
         c.newRun(43u);
         assert(a.player().x == b.player().x && a.player().y == b.player().y);
+        assert(a.enemyCount() == b.enemyCount());
+        for (int i = 0; i < a.enemyCount(); ++i) {
+            assert(a.enemy(i).x == b.enemy(i).x);
+            assert(a.enemy(i).y == b.enemy(i).y);
+        }
         bool same = a.maze().width() == b.maze().width();
         for (int y = 0; y < a.maze().height() && same; ++y) {
             for (int x = 0; x < a.maze().width() && same; ++x) {
@@ -167,7 +247,9 @@ int main() {
         }
     }
 
-    // Quedarse quieto no cambia de piso ni mata a nadie.
+    // Quieto y lejos no pasa nada: los guardianes nacen fuera de su alcance de
+    // vista y solo despiertan cuando el jugador se acerca. Un enemigo que
+    // patrullara desde el principio echaria el nivel entero encima al entrar.
     {
         Game g;
         g.newRun(99u);
@@ -176,14 +258,58 @@ int main() {
         assert(g.floor() == 1);
         assert(g.state() == Game::State::Playing);
         assert(g.hp() == Game::START_HP);
+        for (int i = 0; i < g.enemyCount(); ++i) {
+            assert(g.enemy(i).state == Enemy::State::Idle);
+        }
     }
 
-    // La run se puede terminar de verdad: se recorren los 5 pisos caminando,
-    // no teletransportando, y la run acaba en Cleared. Es la prueba de que el
-    // MVP es jugable de principio a fin.
+    // Acercarse SIN disparar cuesta vida: es la prueba de que el dano del
+    // guardian llega al jugador y de que despierta al verlo.
     {
         Game g;
-        g.newRun(583291u);
+        g.newRun(99u);
+        int target = nearestEnemy(g, 1e9);
+        assert(target >= 0);
+        int ex = fxFloorInt(g.enemy(target).x);
+        int ey = fxFloorInt(g.enemy(target).y);
+
+        auto path = bfsPath(g.maze(), fxFloorInt(g.player().x),
+                            fxFloorInt(g.player().y), ex, ey);
+        assert(!path.empty());
+
+        size_t wp = 1;
+        int guard = 0;
+        while (g.hp() == Game::START_HP && guard++ < 20000 &&
+               g.state() == Game::State::Playing) {
+            if (wp >= path.size()) {
+                // ya encima: quedarse ahi sin disparar
+                Input idle;
+                g.update(idle, DT);
+                continue;
+            }
+            if (!steerToward(g, path[wp].first, path[wp].second, true, false)) ++wp;
+        }
+        assert(g.hp() < Game::START_HP);
+    }
+
+    // Los sprites que se mandan a dibujar son exactamente los enemigos vivos.
+    {
+        Game g;
+        g.newRun(5150u);
+        SpriteInstance sprites[Game::MAX_ENEMIES];
+        int n = g.buildSprites(sprites, Game::MAX_ENEMIES);
+        assert(n == g.aliveEnemies());
+        for (int i = 0; i < n; ++i) {
+            assert(sprites[i].frame >= 0 && sprites[i].frame < 2);
+        }
+    }
+
+    // La run se puede TERMINAR de verdad. El piloto recorre los cinco pisos
+    // disparando a lo que se le cruza, y la run acaba en Cleared. Sin esto no
+    // habria forma de saber si el juego es ganable o solo perdible despacio.
+    {
+        Game g;
+        g.newRun(42u);
         for (int floor = 1; floor <= Game::FINAL_FLOOR; ++floor) {
             assert(g.floor() == floor);
             assert(!g.maze().isWall(fxFloorInt(g.player().x),
@@ -192,6 +318,7 @@ int main() {
         }
         assert(g.state() == Game::State::Cleared);
         assert(g.hp() > 0);
+        assert(g.kills() > 0);  // llego disparando, no escondiendose
     }
 
     std::printf("all tests passed\n");

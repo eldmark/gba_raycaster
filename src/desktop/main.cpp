@@ -49,6 +49,13 @@ int main(int argc, char** argv) {
         game.update(input, dt);
 
         renderWorld(fb, game.maze(), game.player());
+
+        // los sprites van despues de las paredes: usan el z-buffer que acaba
+        // de dejar renderWorld
+        SpriteInstance sprites[Game::MAX_ENEMIES];
+        renderSprites(fb, game.player(), sprites,
+                      game.buildSprites(sprites, Game::MAX_ENEMIES));
+
         renderMinimap(fb, game.maze(), game.player());
         platform.present(fb);
 
@@ -78,8 +85,9 @@ int main(int argc, char** argv) {
                                                                          : "";
                 char title[96];
                 std::snprintf(title, sizeof(title),
-                              "Roguelike GBA - piso %d/%d - HP %d - %.0f FPS%s",
+                              "ARCHIVO %d/%d - HP %d - %d activos - %.0f FPS%s",
                               game.floor(), Game::FINAL_FLOOR, game.hp(),
+                              game.aliveEnemies(),
                               frames * 1000.0f / float(elapsed), tag);
                 platform.setTitle(title);
             }

@@ -30,6 +30,7 @@ target_include_directories(engine PUBLIC src/engine)
 add_library(game STATIC
     src/game/Level.cpp
     src/game/Game.cpp
+    src/game/Enemy.cpp
 )
 target_include_directories(game PUBLIC src/game)
 target_link_libraries(game PUBLIC engine)
@@ -52,7 +53,7 @@ configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 enable_testing()
 # el build Release define NDEBUG, que borraria todos los assert y dejaria los
 # tests pasando siempre. Se anula solo para estos targets.
-foreach(suite raycaster level game)
+foreach(suite raycaster level game enemy)
     add_executable(test_${suite} src/tests/test_${suite}.cpp)
     target_link_libraries(test_${suite} PRIVATE game)
     target_compile_options(test_${suite} PRIVATE -UNDEBUG)

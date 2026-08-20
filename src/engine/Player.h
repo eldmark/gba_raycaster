@@ -16,6 +16,7 @@ struct Input {
     bool right = false;
     bool fwd = false;
     bool back = false;
+    bool fire = false;   // A en GBA: disparar
     bool start = false;  // START en GBA: reiniciar / pausar
 };
 

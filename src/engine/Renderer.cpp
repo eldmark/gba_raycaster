@@ -24,6 +24,19 @@ constexpr fx SIDE_LIGHT = fxFloat(0.7f);
 // abajo de la pantalla; mas alla de estas, todas caen sobre la misma fila.
 constexpr int GRID_STEPS = 20;
 
+// Ancho maximo de pantalla soportado. Solo dimensiona el z-buffer; en GBA
+// bastan 240 y el array baja a 960 bytes.
+// ponytail: array fijo en vez de reservar por frame, que en GBA no hay heap
+// que valga la pena tocar en el bucle de render.
+#ifndef MAX_SCREEN_W
+#define MAX_SCREEN_W 960
+#endif
+
+// Distancia de la pared de cada columna, rellenada por renderWorld y consultada
+// por renderSprites (seccion 22 del PROJECT.md).
+fx g_wallDist[MAX_SCREEN_W];
+int g_zbufWidth = 0;
+
 // Devuelve el NIVEL de la rampa, no un factor: el sombreado ya esta horneado en
 // la paleta, asi que el bucle interno solo suma este entero al indice.
 int shadeLevel(fx perpDist, int side) {
@@ -126,6 +139,90 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         for (int y = top; y < bottom; ++y, texPos += step) {
             int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
             fb.setPixel(x, y, uint8_t(base + col[texY * TEX_SIZE] * SHADE_LEVELS));
+        }
+
+        if (x < MAX_SCREEN_W) g_wallDist[x] = hit.perpDist;
+    }
+    g_zbufWidth = std::min(w, MAX_SCREEN_W);
+}
+
+void renderSprites(Framebuffer& fb, const Player& player,
+                   SpriteInstance* sprites, int count) {
+    const int w = fb.width();
+    const int h = fb.height();
+    const int half = h / 2;
+    const Camera cam = cameraOf(player);
+
+    // De lejos a cerca: si no, un enemigo lejano se dibuja encima de uno
+    // cercano. Insercion porque count es de un digito y ya suele venir casi
+    // ordenado de un frame al siguiente.
+    for (int i = 1; i < count; ++i) {
+        SpriteInstance key = sprites[i];
+        fx keyD = fxMul(key.x - player.x, key.x - player.x) +
+                  fxMul(key.y - player.y, key.y - player.y);
+        int j = i - 1;
+        while (j >= 0) {
+            fx d = fxMul(sprites[j].x - player.x, sprites[j].x - player.x) +
+                   fxMul(sprites[j].y - player.y, sprites[j].y - player.y);
+            if (d >= keyD) break;
+            sprites[j + 1] = sprites[j];
+            --j;
+        }
+        sprites[j + 1] = key;
+    }
+
+    // Cambio a coordenadas de camara. La matriz [plane | dir] lleva de camara a
+    // mundo, asi que su inversa lleva de mundo a camara: transY sale siendo la
+    // profundidad, comparable directamente con el z-buffer.
+    const fx det = fxMul(cam.planeX, cam.dirY) - fxMul(cam.dirX, cam.planeY);
+    if (det == 0) return;
+
+    for (int i = 0; i < count; ++i) {
+        const fx relX = sprites[i].x - player.x;
+        const fx relY = sprites[i].y - player.y;
+
+        const fx transX = fxDiv(fxMul(cam.dirY, relX) - fxMul(cam.dirX, relY), det);
+        const fx transY = fxDiv(fxMul(cam.planeX, relY) - fxMul(cam.planeY, relX), det);
+
+        // detras de la camara, o tan cerca que la altura desbordaria
+        if (transY < kMinDist) continue;
+
+        const int size = fxFloorInt(fxDiv(fxInt(h), transY));
+        if (size <= 0) continue;
+
+        const int screenX = fxFloorInt(fxInt(w / 2) + fxMul(fxInt(w / 2), fxDiv(transX, transY)));
+        const int left = screenX - size / 2;
+        const int topY = half - size / 2;
+
+        const int x0 = std::max(0, left);
+        const int x1 = std::min(w, left + size);
+        const int y0 = std::max(0, topY);
+        const int y1 = std::min(h, topY + size);
+        if (x0 >= x1 || y0 >= y1) continue;
+
+        // avance en la textura por pixel de pantalla, igual que en las paredes
+        const fx texStep = fxDiv(fxInt(SPR_SIZE), fxInt(size));
+        const uint8_t base = spriteBase(shadeLevel(transY, 0));
+        const SpriteFrame& frame =
+            wardenFrames()[sprites[i].frame & (SPR_FRAMES - 1)];
+
+        for (int x = x0; x < x1; ++x) {
+            // el z-buffer es lo unico que impide ver enemigos a traves de las
+            // paredes (seccion 22)
+            if (x < g_zbufWidth && transY >= g_wallDist[x]) continue;
+
+            int texX = fxFloorInt(fxMul(fxInt(x - left), texStep));
+            if (texX < 0 || texX >= SPR_SIZE) continue;
+            const uint8_t* col = frame.px + texX;
+
+            fx texPos = fxMul(fxInt(y0 - topY), texStep);
+            for (int y = y0; y < y1; ++y, texPos += texStep) {
+                int texY = fxFloorInt(texPos);
+                if (texY < 0 || texY >= SPR_SIZE) continue;
+                uint8_t c = col[texY * SPR_SIZE];
+                if (c == 0) continue;  // transparente
+                fb.setPixel(x, y, uint8_t(base + (c - 1) * SHADE_LEVELS));
+            }
         }
     }
 }

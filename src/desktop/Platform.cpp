@@ -65,7 +65,8 @@ bool Platform::pollInput(Input& input) {
     input.right = keys[SDL_SCANCODE_RIGHT];
     input.fwd = keys[SDL_SCANCODE_UP];
     input.back = keys[SDL_SCANCODE_DOWN];
-    input.start = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_SPACE];
+    input.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LCTRL];
+    input.start = keys[SDL_SCANCODE_RETURN];
     return true;
 }
 

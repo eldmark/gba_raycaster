@@ -22,12 +22,14 @@ struct Texture {
     uint8_t px[TEX_SIZE * TEX_SIZE];  // 0..TEX_COLORS-1
 };
 
+
 // --- mapa de la paleta --------------------------------------------------------
 // [0..95]    paredes: (tex * TEX_COLORS + color) * SHADE_LEVELS + nivel
 // [96..111]  rampa de techo
 // [112..127] rampa de suelo
 // [128..143] rampa de la linea de rejilla del suelo
 // [144..147] colores planos del minimapa
+// [148..171] colores de sprites (3 x 8 niveles)
 constexpr int PAL_WALLS = 0;
 constexpr int PAL_SKY = TEX_COUNT * TEX_COLORS * SHADE_LEVELS;
 constexpr int PAL_FLOOR = PAL_SKY + BG_LEVELS;
@@ -36,7 +38,26 @@ constexpr int PAL_MAP_BG = PAL_FLOOR_LINE + BG_LEVELS;
 constexpr int PAL_MAP_WALL = PAL_MAP_BG + 1;
 constexpr int PAL_MAP_RAY = PAL_MAP_WALL + 1;
 constexpr int PAL_MAP_PLAYER = PAL_MAP_RAY + 1;
-constexpr int PALETTE_SIZE = PAL_MAP_PLAYER + 1;
+
+// --- sprites ------------------------------------------------------------------
+// El indice 0 de un sprite es transparente, asi que solo los colores 1..N
+// ocupan paleta.
+constexpr int SPR_SIZE = 32;    // potencia de 2, como las paredes
+constexpr int SPR_FRAMES = 2;   // animacion de latido del guardian
+constexpr int SPR_COLORS = 3;   // sin contar el transparente
+
+constexpr int PAL_SPRITE = PAL_MAP_PLAYER + 1;
+constexpr int PALETTE_SIZE = PAL_SPRITE + SPR_COLORS * SHADE_LEVELS;
+
+// Primer indice del sprite a un nivel de luz. Se le suma (color - 1) *
+// SHADE_LEVELS, igual que en las paredes.
+inline uint8_t spriteBase(int level) { return uint8_t(PAL_SPRITE + level); }
+
+// Sprite de mundo. El 0 es transparente y no se dibuja; 1..SPR_COLORS indexan
+// la seccion de sprites de la paleta.
+struct SpriteFrame {
+    uint8_t px[SPR_SIZE * SPR_SIZE];
+};
 
 static_assert(PALETTE_SIZE <= 256, "no cabe en la paleta de 8 bits de la GBA");
 
@@ -145,11 +166,40 @@ constexpr uint8_t BASE_RGB[TEX_COUNT][TEX_COLORS][3] = {
     {{170, 173, 179}, {31, 43, 66}, {19, 27, 41}, {106, 53, 83}},
 };
 
+// WARDEN: proceso guardian. Un nucleo en rombo que late entre los dos
+// fotogramas, con cuatro corchetes fijos alrededor. Verde brillante solo en el
+// nucleo, que es el unico sitio del juego donde ese verde aparece (regla 1 de
+// DESIGN.md); el resto va en rosa sombra para que no compita.
+inline void fillWarden(SpriteFrame& s, int frame) {
+    const int core = frame ? 7 : 5;  // el latido
+    for (int y = 0; y < SPR_SIZE; ++y) {
+        for (int x = 0; x < SPR_SIZE; ++x) {
+            int cx = x - SPR_SIZE / 2;
+            int cy = y - SPR_SIZE / 2;
+            int diamond = (cx < 0 ? -cx : cx) + (cy < 0 ? -cy : cy);
+            int ax = cx < 0 ? -cx : cx;
+            int ay = cy < 0 ? -cy : cy;
+
+            uint8_t c = 0;  // transparente
+            if (diamond < core) {
+                c = 1;  // nucleo verde
+            } else if (diamond < core + 3) {
+                c = 3;  // halo rosa sombra
+            } else if (ax >= 10 && ay >= 10 && ax <= 14 && ay <= 14 &&
+                       (ax >= 13 || ay >= 13)) {
+                c = 2;  // corchetes de las esquinas, verde apagado
+            }
+            s.px[y * SPR_SIZE + x] = c;
+        }
+    }
+}
+
 }  // namespace detail
 
 // Texturas y paleta, construidas una sola vez en el primer uso.
 struct Assets {
     Texture tex[TEX_COUNT];
+    SpriteFrame warden[SPR_FRAMES];
     uint32_t pal[PALETTE_SIZE];
 };
 
@@ -160,6 +210,7 @@ inline const Assets& assets() {
         detail::fillPanel(a.tex[0]);
         detail::fillConduit(a.tex[1]);
         detail::fillGrid(a.tex[2]);
+        for (int f = 0; f < SPR_FRAMES; ++f) detail::fillWarden(a.warden[f], f);
 
         for (int t = 0; t < TEX_COUNT; ++t) {
             for (int c = 0; c < TEX_COLORS; ++c) {
@@ -190,10 +241,26 @@ inline const Assets& assets() {
         a.pal[PAL_MAP_WALL] = rgb(35, 49, 74);
         a.pal[PAL_MAP_RAY] = rgb(191, 32, 120);
         a.pal[PAL_MAP_PLAYER] = rgb(170, 173, 179);
+
+        // Colores de sprite: verde de enemigo, su version apagada, y el rosa
+        // sombra para el detalle.
+        constexpr uint8_t SPRITE_RGB[SPR_COLORS][3] = {
+            {38, 191, 33},   // 1: nucleo
+            {24, 110, 21},   // 2: corchetes
+            {106, 53, 83},   // 3: halo
+        };
+        for (int c = 0; c < SPR_COLORS; ++c) {
+            uint32_t base = rgb(SPRITE_RGB[c][0], SPRITE_RGB[c][1], SPRITE_RGB[c][2]);
+            for (int l = 0; l < SHADE_LEVELS; ++l) {
+                a.pal[PAL_SPRITE + c * SHADE_LEVELS + l] =
+                    shade(base, float(l + 1) / SHADE_LEVELS);
+            }
+        }
         built = true;
     }
     return a;
 }
 
 inline const Texture* textures() { return assets().tex; }
+inline const SpriteFrame* wardenFrames() { return assets().warden; }
 inline const uint32_t* palette() { return assets().pal; }
