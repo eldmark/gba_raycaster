@@ -5,18 +5,18 @@
 Framebuffer::Framebuffer(int w, int h)
     : width_(w), height_(h), buf_(size_t(w) * size_t(h), 0) {}
 
-void Framebuffer::clear(uint32_t color) {
+void Framebuffer::clear(uint8_t color) {
     std::fill(buf_.begin(), buf_.end(), color);
 }
 
-void Framebuffer::setPixel(int x, int y, uint32_t color) {
+void Framebuffer::setPixel(int x, int y, uint8_t color) {
     // fuera de rango se descarta en silencio: el raycaster dibuja columnas
     // que se salen de la pantalla y cuenta con esto.
     if (x < 0 || x >= width_ || y < 0 || y >= height_) return;
     buf_[size_t(y) * size_t(width_) + size_t(x)] = color;
 }
 
-void Framebuffer::fillRect(int x, int y, int w, int h, uint32_t color) {
+void Framebuffer::fillRect(int x, int y, int w, int h, uint8_t color) {
     // recortamos primero y luego llenamos por filas: esto se llama una vez
     // por columna de pantalla, no conviene pasar por setPixel pixel a pixel.
     int x0 = std::max(x, 0);

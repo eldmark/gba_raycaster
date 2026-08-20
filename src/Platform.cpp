@@ -1,9 +1,11 @@
 #include "Platform.h"
 
 #include "Framebuffer.h"
+#include "Textures.h"
 
 #include <SDL2/SDL.h>
 #include <cstdio>
+#include <vector>
 
 // SDL solo se incluye aqui: los headers del motor no deben arrastrarlo,
 // por eso los handles viven como void* en Platform.h.
@@ -70,7 +72,17 @@ void Platform::present(const Framebuffer& fb) {
     SDL_Texture* texture = static_cast<SDL_Texture*>(texture_);
     SDL_Renderer* renderer = static_cast<SDL_Renderer*>(renderer_);
 
-    SDL_UpdateTexture(texture, nullptr, fb.pixels(),
+    // el framebuffer es indexado; aca se expande a ARGB con la paleta. En GBA
+    // este paso no existe: el hardware lee la paleta por su cuenta.
+    // ponytail: lookup lineal en CPU, suficiente a 900x600.
+    static std::vector<uint32_t> argb;
+    const size_t n = size_t(fb.width()) * size_t(fb.height());
+    argb.resize(n);
+    const uint8_t* src = fb.pixels();
+    const uint32_t* pal = palette();
+    for (size_t i = 0; i < n; ++i) argb[i] = pal[src[i]];
+
+    SDL_UpdateTexture(texture, nullptr, argb.data(),
                       fb.width() * int(sizeof(uint32_t)));
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, nullptr, nullptr);

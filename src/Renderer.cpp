@@ -15,8 +15,14 @@ namespace {
 // En celdas, 500 px / 40 px por celda = 12.5 celdas.
 constexpr float SHADE_RANGE = 12.5f;
 
-float distanceShade(float perpDist) {
-    return std::clamp(1.0f - perpDist / SHADE_RANGE, 0.25f, 1.0f);
+// Devuelve el NIVEL de la rampa, no un factor: el sombreado ya esta horneado en
+// la paleta, asi que el bucle interno solo suma este entero al indice.
+int shadeLevel(float perpDist, int side) {
+    float light = std::clamp(1.0f - perpDist / SHADE_RANGE, 0.25f, 1.0f);
+    // las caras horizontales van mas oscuras, como en Wolf3D: da volumen sin
+    // necesidad de iluminacion real.
+    if (side == 1) light *= 0.7f;
+    return std::clamp(int(light * SHADE_LEVELS), 0, SHADE_LEVELS - 1);
 }
 
 // Base de camara de Wolf3D: dir mira al frente, plane es perpendicular y mide
@@ -42,8 +48,17 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
     const int half = h / 2;
     const Camera cam = cameraOf(player);
 
-    fb.fillRect(0, 0, w, half, rgb(40, 40, 60));           // cielo
-    fb.fillRect(0, half, w, h - half, rgb(70, 60, 50));    // piso
+    // cielo y piso en bandas de paleta: degradan sin costar mas que 2*BG_LEVELS
+    // fillRect por frame, y en GBA el degradado se puede pasar a HBlank DMA.
+    for (int b = 0; b < BG_LEVELS; ++b) {
+        int y0 = half * b / BG_LEVELS;
+        int y1 = half * (b + 1) / BG_LEVELS;
+        fb.fillRect(0, y0, w, y1 - y0, uint8_t(PAL_SKY + b));
+
+        int f0 = half + (h - half) * b / BG_LEVELS;
+        int f1 = half + (h - half) * (b + 1) / BG_LEVELS;
+        fb.fillRect(0, f0, w, f1 - f0, uint8_t(PAL_FLOOR + b));
+    }
 
     for (int x = 0; x < w; ++x) {
         float cameraX = 2.0f * x / w - 1.0f;
@@ -67,11 +82,9 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         }
         int texX = std::min(int(u * TEX_SIZE), TEX_SIZE - 1);
 
-        const Texture& tex = textures()[texIndex(hit.impact)];
-
-        // las caras horizontales van mas oscuras, como en Wolf3D: da volumen
-        // sin necesidad de iluminacion real.
-        float light = distanceShade(hit.perpDist) * (hit.side == 1 ? 0.7f : 1.0f);
+        const int texId = texIndex(hit.impact);
+        const Texture& tex = textures()[texId];
+        const uint8_t base = wallBase(texId, shadeLevel(hit.perpDist, hit.side));
 
         // avance en la textura por pixel de pantalla. texPos arranca desde
         // exactTop y no desde top, asi la textura no "resbala" cuando la pared
@@ -82,7 +95,7 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         for (int y = top; y < bottom; ++y) {
             int texY = int(texPos) & (TEX_SIZE - 1);
             texPos += step;
-            fb.setPixel(x, y, shade(tex.px[texY * TEX_SIZE + texX], light));
+            fb.setPixel(x, y, uint8_t(base + tex.px[texY * TEX_SIZE + texX] * SHADE_LEVELS));
         }
     }
 }
@@ -97,13 +110,13 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
     auto toMapY = [](float cy) { return MARGIN + int(cy * CELL); };
 
     fb.fillRect(MARGIN - 2, MARGIN - 2, int(maze.width() * CELL) + 4,
-                int(maze.height() * CELL) + 4, rgb(0, 0, 0));
+                int(maze.height() * CELL) + 4, PAL_MAP_BG);
 
     for (int j = 0; j < maze.height(); ++j) {
         for (int i = 0; i < maze.width(); ++i) {
             if (!maze.isWall(i, j)) continue;
             fb.fillRect(toMapX(float(i)), toMapY(float(j)), int(CELL) + 1,
-                        int(CELL) + 1, rgb(102, 191, 255));
+                        int(CELL) + 1, PAL_MAP_WALL);
         }
     }
 
@@ -126,9 +139,9 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
         for (int s = 0; s <= steps; ++s) {
             float t = float(s) / steps;
             fb.setPixel(int(px + (hx - px) * t), int(py + (hy - py) * t),
-                        rgb(230, 41, 55));
+                        PAL_MAP_RAY);
         }
     }
 
-    fb.fillRect(px - 2, py - 2, 4, 4, rgb(253, 249, 0));
+    fb.fillRect(px - 2, py - 2, 4, 4, PAL_MAP_PLAYER);
 }
