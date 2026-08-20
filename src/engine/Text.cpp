@@ -36,6 +36,50 @@ void drawTextCentered(Framebuffer& fb, int y, const char* text, unsigned char co
     drawText(fb, (fb.width() - textWidth(text, scale)) / 2, y, text, color, scale);
 }
 
+// --- arte ASCII ---------------------------------------------------------------
+
+int artWidth(const char* text, int scale) {
+    int n = 0;
+    for (const char* p = text; *p; ++p) ++n;
+    return n * FONT_W * scale;
+}
+
+int artLineHeight(int scale) { return FONT_H * scale; }
+
+void drawArtLine(Framebuffer& fb, int x, int y, const char* text,
+                 unsigned char color, int scale) {
+    const uint8_t* glyphs = fontGlyphs();
+
+    for (const char* p = text; *p; ++p) {
+        const uint8_t* g = glyphs + fontIndex(*p) * FONT_H;
+        for (int row = 0; row < FONT_H; ++row) {
+            uint8_t bits = g[row];
+            if (bits == 0) continue;
+            for (int col = 0; col < FONT_W; ++col) {
+                if (!(bits & (1 << (FONT_W - 1 - col)))) continue;
+                fb.fillRect(x + col * scale, y + row * scale, scale, scale, color);
+            }
+        }
+        x += FONT_W * scale;  // pegado al siguiente, sin FONT_GAP
+    }
+}
+
+void drawArtCentered(Framebuffer& fb, int y, const char* const* lines, int count,
+                     unsigned char color, int scale) {
+    // todas las lineas se alinean con la mas ancha, no cada una por su cuenta,
+    // o el dibujo se desmonta
+    int widest = 0;
+    for (int i = 0; i < count; ++i) {
+        int w = artWidth(lines[i], scale);
+        if (w > widest) widest = w;
+    }
+    const int x = (fb.width() - widest) / 2;
+
+    for (int i = 0; i < count; ++i) {
+        drawArtLine(fb, x, y + i * artLineHeight(scale), lines[i], color, scale);
+    }
+}
+
 const char* intToText(char* buf, int value) {
     char tmp[12];
     int n = 0;

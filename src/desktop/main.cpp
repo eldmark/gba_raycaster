@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
                                : uint32_t(std::time(nullptr));
 
     Platform platform;
-    if (!platform.init(WIDTH, HEIGHT, "Roguelike GBA")) {
+    if (!platform.init(WIDTH, HEIGHT, "VIOLET HAT")) {
         platform.shutdown();
         return 1;
     }
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
             unsigned long long elapsed = now - fpsTicks;
             if (elapsed > 0) {
                 char title[96];
-                std::snprintf(title, sizeof(title), "ARCHIVO - %.0f FPS",
+                std::snprintf(title, sizeof(title), "VIOLET HAT - %.0f FPS",
                               frames * 1000.0f / float(elapsed));
                 platform.setTitle(title);
             }

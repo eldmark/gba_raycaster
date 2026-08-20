@@ -1,4 +1,4 @@
-# GreenHat FPS para Game Boy Advance
+# VioletHat FPS para Game Boy Advance
 
 Motor de raycasting con DDA, escrito desde cero en C++, sin librerías de
 raycasting. No eres alguien perdido en un laberinto: eres un programa
@@ -43,14 +43,14 @@ Hace falta CMake y SDL2.
 ```sh
 cmake -S . -B build
 cmake --build build -j
-./build/raycaster
+./build/violethat
 ```
 
 La misma seed reconstruye la misma run entera —mapa, salida y guardianes—, lo
 que sirve para reproducir un fallo o repetir una partida concreta:
 
 ```sh
-./build/raycaster 583291
+./build/violethat 583291
 ```
 
 Sin argumento, cada partida usa una seed nueva y la imprime al arrancar.
@@ -79,7 +79,7 @@ la salida enlaza con el siguiente archivo y recupera parte de la integridad.
 Llegar al final de los cinco cierra la run; quedarse sin integridad también,
 pero peor.
 
-Los guardianes duermen hasta que te ven —alcance *y* línea de visión, no solo
+Los guardianes duermen hasta que te ven —alcance _y_ línea de visión, no solo
 cercanía—, entonces persiguen y golpean con una cadencia fija. Con el jugador a
 la vista van derechos; sin verlo siguen un campo de flujo calculado con una
 búsqueda en anchura desde la celda del jugador, compartido por todos y rehecho
@@ -116,6 +116,11 @@ entero en lugar de escalar componentes de color.
 La estética está fijada en [DESIGN.md](DESIGN.md). El verde es exclusivo de los
 enemigos: es la única señal de peligro del juego y pierde su valor en cuanto
 aparece en una pared. Por eso la barra de integridad es rosa y no verde.
+
+El logotipo es arte ASCII de verdad, no un mapa de bits que lo imite: el juego
+va de estar dentro de una máquina, y un sombrero dibujado con guiones bajos y
+barras dice eso sin explicarlo. Se dibuja con separación cero entre caracteres,
+o los trazos salen punteados.
 
 El texto usa una fuente de mapa de bits 5x7 generada desde arte ASCII. Las
 pantallas se maquetan midiendo el bloque y centrándolo, no dejándolo fluir hacia

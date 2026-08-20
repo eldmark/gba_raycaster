@@ -21,6 +21,21 @@ int textHeight(int scale = 1);
 void drawTextCentered(Framebuffer& fb, int y, const char* text, unsigned char color,
                       int scale = 1);
 
+// --- arte ASCII ---------------------------------------------------------------
+// Igual que drawText pero SIN separacion entre caracteres y con las lineas
+// pegadas. Es lo que hace que los trazos de un dibujo se unan: con el hueco de
+// un pixel que lleva el texto normal, una fila de guiones bajos sale punteada y
+// una columna de barras sale a trozos.
+void drawArtLine(Framebuffer& fb, int x, int y, const char* text,
+                 unsigned char color, int scale = 1);
+
+int artWidth(const char* text, int scale = 1);
+int artLineHeight(int scale = 1);
+
+// Dibuja varias lineas de arte centradas horizontalmente, desde y hacia abajo.
+void drawArtCentered(Framebuffer& fb, int y, const char* const* lines, int count,
+                     unsigned char color, int scale = 1);
+
 // Entero a texto, sin depender de snprintf: en GBA arrastrar printf a la ROM
 // por escribir un numero no compensa. Devuelve buf.
 const char* intToText(char* buf, int value);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(gba_raycaster CXX)
+project(violet_hat CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,11 +41,11 @@ target_link_libraries(game PUBLIC engine)
 # --- plataforma + ejecutable de escritorio ------------------------------------
 find_package(SDL2 REQUIRED)
 
-add_executable(raycaster
+add_executable(violethat
     src/desktop/main.cpp
     src/desktop/Platform.cpp
 )
-target_link_libraries(raycaster PRIVATE game SDL2::SDL2)
+target_link_libraries(violethat PRIVATE game SDL2::SDL2)
 
 # el ejecutable busca maze.txt en el directorio de trabajo
 configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)

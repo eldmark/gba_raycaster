@@ -132,6 +132,24 @@ void drawHud(Framebuffer& fb, const Game& game) {
 
 namespace {
 
+// Logotipo. Arte ASCII a proposito y no un mapa de bits: el juego va de estar
+// dentro de una maquina, y un dibujo hecho de caracteres dice eso solo.
+//
+// Se dibuja sin separacion entre caracteres (drawArtCentered), o los guiones
+// bajos saldrian punteados y las barras verticales a trozos.
+const char* const HAT[] = {
+    "     _______     ",
+    "    /       \\    ",
+    "   |         |   ",
+    "   |         |   ",
+    "   |=========|   ",
+    "   |         |   ",
+    " __|_________|__ ",
+    "|               |",
+    "|_______________|",
+};
+constexpr int HAT_LINES = int(sizeof(HAT) / sizeof(HAT[0]));
+
 // Una linea de una pantalla. El texto vacio deja un hueco.
 struct Row {
     const char* text;
@@ -184,23 +202,32 @@ void drawScreen(Framebuffer& fb, const Game& game) {
     const int topLimit = 4 * s;
 
     if (st == Game::State::Title) {
-        const Row rows[] = {
-            {"ARCHIVO", PAL_UI_ACCENT, s * 4},
-            {"", PAL_UI_TEXT, s},
-            {"PROTOCOLO DE INFILTRACION", PAL_UI_TEXT, s},
-            {"", PAL_UI_TEXT, s},
-            {"ERES UN PROCESO SIN FIRMA", PAL_UI_DIM, s},
-            {"DENTRO DE UN SISTEMA QUE LLEVA", PAL_UI_DIM, s},
-            {"MUCHO TIEMPO SIN VISITAS", PAL_UI_DIM, s},
-        };
-        drawBlock(fb, rows, int(sizeof(rows) / sizeof(rows[0])), gap, topLimit,
-                  bottomLimit);
+        // El bloque se mide entero antes de dibujar nada, logotipo incluido:
+        // maquetar hacia abajo dejaba el aviso de START fuera de la pantalla.
+        const int hatH = artLineHeight(s) * HAT_LINES;
+        const int titleH = textHeight(s * 2);
+        const int subH = textHeight(s);
+        const int total = hatH + gap * 2 + titleH + gap + subH;
+
+        int y = topLimit + (bottomLimit - topLimit - total) / 2;
+        if (y < topLimit) y = topLimit;
+
+        drawArtCentered(fb, y, HAT, HAT_LINES, PAL_UI_ACCENT, s);
+        y += hatH + gap * 2;
+        drawTextCentered(fb, y, "VIOLET HAT", PAL_UI_ACCENT, s * 2);
+        y += titleH + gap;
+        drawTextCentered(fb, y, "PROTOCOLO DE INFILTRACION", PAL_UI_TEXT, s);
+
         drawTextCentered(fb, promptY, "START PARA CONTINUAR", PAL_UI_TEXT, s);
         return;
     }
 
     if (st == Game::State::Rules) {
         const Row rows[] = {
+            {"ERES UN PROCESO SIN FIRMA", PAL_UI_DIM, s},
+            {"DENTRO DE UN SISTEMA QUE LLEVA", PAL_UI_DIM, s},
+            {"MUCHO TIEMPO SIN VISITAS", PAL_UI_DIM, s},
+            {"", PAL_UI_TEXT, s},
             {"REGLAS", PAL_UI_ACCENT, s * 2},
             {"", PAL_UI_TEXT, s},
             {"LOS GUARDIANES DUERMEN.", PAL_UI_TEXT, s},
