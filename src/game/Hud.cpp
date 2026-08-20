@@ -204,7 +204,7 @@ void drawScreen(Framebuffer& fb, const Game& game) {
             {"REGLAS", PAL_UI_ACCENT, s * 2},
             {"", PAL_UI_TEXT, s},
             {"LOS GUARDIANES DUERMEN.", PAL_UI_TEXT, s},
-            {"DESPIERTAN CUANDO TE ACERCAS.", PAL_UI_TEXT, s},
+            {"DESPIERTAN CUANDO TE VEN.", PAL_UI_TEXT, s},
             {"", PAL_UI_TEXT, s},
             {"DISPARA CON A.", PAL_UI_TEXT, s},
             {"EL DISPARO NO ATRAVIESA MUROS.", PAL_UI_TEXT, s},

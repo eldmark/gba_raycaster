@@ -79,10 +79,15 @@ la salida enlaza con el siguiente archivo y recupera parte de la integridad.
 Llegar al final de los cinco cierra la run; quedarse sin integridad también,
 pero peor.
 
-Los guardianes duermen hasta que entras en su alcance de visión, entonces
-persiguen y golpean con una cadencia fija. El disparo es hitscan: lanza un rayo
-desde la cámara y, si hay pared antes que el guardián, se pierde contra la
-pared.
+Los guardianes duermen hasta que te ven —alcance *y* línea de visión, no solo
+cercanía—, entonces persiguen y golpean con una cadencia fija. Con el jugador a
+la vista van derechos; sin verlo siguen un campo de flujo calculado con una
+búsqueda en anchura desde la celda del jugador, compartido por todos y rehecho
+cuatro veces por segundo. Sin él se quedaban empujando la esquina que tuvieran
+delante, para siempre.
+
+El disparo es hitscan: lanza un rayo desde la cámara y, si hay pared antes que
+el guardián, se pierde contra la pared.
 
 ## Arquitectura
 

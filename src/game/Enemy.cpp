@@ -1,5 +1,7 @@
 #include "Enemy.h"
 
+#include "Raycaster.h"
+
 namespace {
 
 // Cuadrado de la distancia: evita una raiz por enemigo y por frame. Todas las
@@ -22,6 +24,15 @@ bool blocked(const Maze& maze, fx x, fx y) {
 // Frecuencia del latido del sprite, en segundos por fotograma.
 constexpr fx FRAME_PERIOD = fxFloat(0.35f);
 
+// Hay pared entre el guardian y el jugador?
+bool canSee(const Maze& maze, fx ex, fx ey, fx px, fx py) {
+    const fx dx = px - ex, dy = py - ey;
+    if (dx == 0 && dy == 0) return true;
+    // castRay devuelve la distancia en unidades del vector que se le pasa, asi
+    // que 1.0 es exactamente la posicion del jugador
+    return castRay(maze, ex, ey, dx, dy).perpDist > FX_ONE;
+}
+
 }  // namespace
 
 EnemyTuning tuningForFloor(int floor) {
@@ -37,7 +48,7 @@ EnemyTuning tuningForFloor(int floor) {
     };
 }
 
-int updateEnemy(Enemy& e, const Maze& maze, fx playerX, fx playerY,
+int updateEnemy(Enemy& e, const Maze& maze, const Nav& nav, fx playerX, fx playerY,
                 const EnemyTuning& tuning, fx dt) {
     if (!e.alive()) return 0;
 
@@ -53,8 +64,13 @@ int updateEnemy(Enemy& e, const Maze& maze, fx playerX, fx playerY,
 
     const fx d2 = dist2(e.x, e.y, playerX, playerY);
 
+    const bool sees = canSee(maze, e.x, e.y, playerX, playerY);
+
     if (e.state == Enemy::State::Idle) {
+        // ver, no solo estar cerca: antes despertaban a traves de los muros, y
+        // ademas de ser injusto los dejaba persiguiendo algo inalcanzable
         if (d2 > fxMul(tuning.sightRange, tuning.sightRange)) return 0;
+        if (!sees) return 0;
         e.state = Enemy::State::Chase;
     }
 
@@ -69,10 +85,27 @@ int updateEnemy(Enemy& e, const Maze& maze, fx playerX, fx playerY,
 
     e.state = Enemy::State::Chase;
 
-    // Persecucion directa, sin pathfinding. La seccion 20 lo pide asi: BFS solo
-    // si se demuestra que se atascan.
-    fx dx = playerX - e.x;
-    fx dy = playerY - e.y;
+    // Con el jugador a la vista se va derecho, que se mueve mas natural en una
+    // sala abierta. Sin verlo se sigue el campo de flujo, o el guardian se
+    // queda empujando la esquina que tiene delante.
+    fx dx, dy;
+    if (sees) {
+        dx = playerX - e.x;
+        dy = playerY - e.y;
+    } else {
+        int sx, sy;
+        if (!nav.step(fxFloorInt(e.x), fxFloorInt(e.y), sx, sy)) {
+            // sin ruta: el jugador esta incomunicado de este guardian
+            e.state = Enemy::State::Idle;
+            return 0;
+        }
+        // se apunta al centro de la celda siguiente, no a su esquina, para no
+        // rozar el muro al enfilar un pasillo
+        const fx targetX = fxInt(fxFloorInt(e.x) + sx) + FX_ONE / 2;
+        const fx targetY = fxInt(fxFloorInt(e.y) + sy) + FX_ONE / 2;
+        dx = targetX - e.x;
+        dy = targetY - e.y;
+    }
     // normalizar con la aproximacion octogonal: |v| ~ max + min/2. Evita una
     // raiz cuadrada y se equivoca como mucho un 12%, que en la velocidad de un
     // enemigo no se nota.

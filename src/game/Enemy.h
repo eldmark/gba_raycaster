@@ -2,6 +2,7 @@
 
 #include "Fixed.h"
 #include "Maze.h"
+#include "Nav.h"
 
 // WARDEN: proceso guardian. Un solo tipo por ahora, como pide la seccion 19 del
 // PROJECT.md; los demas se agregan cuando este funcione entero.
@@ -33,5 +34,9 @@ EnemyTuning tuningForFloor(int floor);
 
 // Avanza un enemigo un frame. Devuelve el dano que le hace al jugador en este
 // frame, 0 si ninguno.
-int updateEnemy(Enemy& e, const Maze& maze, fx playerX, fx playerY,
+//
+// nav es el campo de flujo hacia el jugador, compartido por todos: se usa
+// cuando el guardian NO tiene linea de visión, que es cuando ir en linea recta
+// lo dejaria empujando una pared.
+int updateEnemy(Enemy& e, const Maze& maze, const Nav& nav, fx playerX, fx playerY,
                 const EnemyTuning& tuning, fx dt);

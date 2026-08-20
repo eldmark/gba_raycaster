@@ -5,6 +5,7 @@
 #include "Fixed.h"
 #include "Level.h"
 #include "Maze.h"
+#include "Nav.h"
 #include "Random.h"
 #include "Enemy.h"
 #include "Player.h"
@@ -99,6 +100,10 @@ private:
 
     Enemy enemies_[MAX_ENEMIES];
     int enemyCount_ = 0;
+    Nav nav_;
+    // El campo de flujo se recalcula cada varios frames, no cada uno: recorre
+    // el mapa entero y los guardianes se mueven despacio.
+    int navTimer_ = 0;
     EnemyTuning tuning_{};
     fx gunCooldown_ = 0;
 };

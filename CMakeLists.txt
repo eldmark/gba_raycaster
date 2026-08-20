@@ -33,6 +33,7 @@ add_library(game STATIC
     src/game/Game.cpp
     src/game/Enemy.cpp
     src/game/Hud.cpp
+    src/game/Nav.cpp
 )
 target_include_directories(game PUBLIC src/game)
 target_link_libraries(game PUBLIC engine)

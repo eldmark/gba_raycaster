@@ -25,6 +25,10 @@ constexpr int SCORE_PER_KILL = 100;
 constexpr int SCORE_PER_FLOOR = 250;
 constexpr int SCORE_CLEAR_BONUS = 1000;
 
+// Cada cuantos frames se rehace el campo de flujo. A 60 FPS son cuatro veces
+// por segundo; un guardian rapido recorre media celda en ese tiempo.
+constexpr int NAV_PERIOD = 15;
+
 fx dist2(fx ax, fx ay, fx bx, fx by) {
     fx dx = ax - bx, dy = ay - by;
     return fxMul(dx, dx) + fxMul(dy, dy);
@@ -66,6 +70,9 @@ void Game::loadFloor(int floor) {
     // el mismo mapa, o una run no seria reproducible del todo.
     Random rng(seed_ * 2246822519u + uint32_t(floor) * 3266489917u);
     spawnEnemies(rng);
+
+    nav_.rebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
+    navTimer_ = 0;
 }
 
 void Game::spawnEnemies(Random& rng) {
@@ -191,8 +198,13 @@ void Game::update(const Input& input, fx dt) {
         fire();
     }
 
+    if (--navTimer_ <= 0) {
+        navTimer_ = NAV_PERIOD;
+        nav_.rebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
+    }
+
     for (int i = 0; i < enemyCount_; ++i) {
-        hp_ -= updateEnemy(enemies_[i], maze_, player_.x, player_.y, tuning_, dt);
+        hp_ -= updateEnemy(enemies_[i], maze_, nav_, player_.x, player_.y, tuning_, dt);
     }
 
     if (hp_ <= 0) {
