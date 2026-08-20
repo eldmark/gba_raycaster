@@ -16,14 +16,33 @@ constexpr fx HIT_RADIUS = fxFloat(0.45f);
 // pegado al jugador no es dificultad, es una emboscada injusta.
 constexpr fx SPAWN_CLEARANCE = fxInt(5);
 
+// Cuanto dura el fogonazo del disparo.
+constexpr fx MUZZLE_TIME = fxFloat(0.07f);
+
+// Puntos por baja y por archivo superado, mas la prima por completar la
+// infiltracion entera.
+constexpr int SCORE_PER_KILL = 100;
+constexpr int SCORE_PER_FLOOR = 250;
+constexpr int SCORE_CLEAR_BONUS = 1000;
+
 fx dist2(fx ax, fx ay, fx bx, fx by) {
     fx dx = ax - bx, dy = ay - by;
     return fxMul(dx, dx) + fxMul(dy, dy);
 }
 }  // namespace
 
+int Game::score() const {
+    int s = kills_ * SCORE_PER_KILL + (floor_ - 1) * SCORE_PER_FLOOR;
+    if (state_ == State::Cleared) s += SCORE_PER_FLOOR + SCORE_CLEAR_BONUS;
+    return s;
+}
+
 void Game::newRun(uint32_t seed) {
     seed_ = seed ? seed : 1u;
+    // la siguiente run parte de otra semilla, o repetiria nivel
+    nextSeed_ = seed_ * 1664525u + 1013904223u;
+    runTime_ = 0;
+    muzzle_ = 0;
     hpMax_ = START_HP;
     hp_ = hpMax_;
     kills_ = 0;
@@ -140,14 +159,35 @@ void Game::fire() {
 }
 
 void Game::update(const Input& input, fx dt) {
-    // muerto o terminado, el mundo se congela: quien llama decide si reinicia
-    if (state_ != State::Playing) return;
+    // START por flanco: si se leyera por nivel, mantenerlo pulsado atravesaria
+    // las tres pantallas en tres frames
+    const bool startPressed = input.start && !prevStart_;
+    prevStart_ = input.start;
+
+    switch (state_) {
+        case State::Title:
+            if (startPressed) state_ = State::Rules;
+            return;
+        case State::Rules:
+            if (startPressed) newRun(nextSeed_);
+            return;
+        case State::Dead:
+        case State::Cleared:
+            if (startPressed) state_ = State::Title;
+            return;
+        case State::Playing:
+            break;
+    }
+
+    runTime_ += dt;
+    if (muzzle_ > 0) muzzle_ -= dt;
 
     updatePlayer(player_, input, maze_, dt);
 
     if (gunCooldown_ > 0) gunCooldown_ -= dt;
     if (input.fire && gunCooldown_ <= 0) {
         gunCooldown_ = GUN_PERIOD;
+        muzzle_ = MUZZLE_TIME;
         fire();
     }
 

@@ -1,4 +1,4 @@
-# ARCHIVO — roguelike FPS para Game Boy Advance
+# GreenHat FPS para Game Boy Advance
 
 Motor de raycasting con DDA, escrito desde cero en C++, sin librerías de
 raycasting. No eres alguien perdido en un laberinto: eres un programa
@@ -7,8 +7,8 @@ demasiado tiempo solos.
 
 ![Pasillo del archivo](public/screenshot.png)
 
-| | |
-|---|---|
+|                                  |                             |
+| -------------------------------- | --------------------------- |
 | ![Guardián](public/guardian.png) | ![Rejilla](public/grid.png) |
 
 ## Estado
@@ -33,6 +33,7 @@ MVP (sección 29 del documento de diseño):
 - [x] El jugador recibe daño
 - [x] Salida y cambio de piso
 - [x] Fin de run y run nueva
+- [x] HUD, pantallas de bienvenida y reglas, marcador final
 - [ ] Port a Game Boy Advance
 
 ## Compilar y jugar
@@ -56,13 +57,19 @@ Sin argumento, cada partida usa una seed nueva y la imprime al arrancar.
 
 ## Controles
 
-| Tecla | Acción | GBA |
-|-------|--------|-----|
-| ↑ ↓ | Avanzar / retroceder | D-PAD |
-| ← → | Girar | D-PAD |
-| Espacio | Disparar | A |
-| Enter | Nueva run (al terminar la actual) | START |
-| Esc | Salir | — |
+| Tecla   | Acción                            | GBA   |
+| ------- | --------------------------------- | ----- |
+| ↑ ↓     | Avanzar / retroceder              | D-PAD |
+| ← →     | Girar                             | D-PAD |
+| Espacio | Disparar                          | A     |
+| Enter   | Nueva run (al terminar la actual) | START |
+| Esc     | Salir                             | —     |
+
+## Puntuación
+
+100 puntos por baja y 250 por cada archivo superado, más 1000 de prima por salir
+entero. Se calcula a partir del estado en lugar de acumularse, así no puede
+desincronizarse con lo que muestra el HUD.
 
 ## Cómo funciona
 
@@ -103,7 +110,12 @@ entero en lugar de escalar componentes de color.
 
 La estética está fijada en [DESIGN.md](DESIGN.md). El verde es exclusivo de los
 enemigos: es la única señal de peligro del juego y pierde su valor en cuanto
-aparece en una pared.
+aparece en una pared. Por eso la barra de integridad es rosa y no verde.
+
+El texto usa una fuente de mapa de bits 5x7 generada desde arte ASCII. Las
+pantallas se maquetan midiendo el bloque y centrándolo, no dejándolo fluir hacia
+abajo, para que quepan igual en una ventana grande que en los 240x160 de la
+consola.
 
 ## Pruebas
 
@@ -115,7 +127,7 @@ Cuatro suites. Las que valen algo son estas dos:
 
 - **`game`** conduce al jugador por los cinco pisos con la misma `Input` que
   produce la capa de plataforma, siguiendo una ruta calculada con BFS y
-  disparando a lo que se cruza. Comprueba que la run se puede *terminar*, no
+  disparando a lo que se cruza. Comprueba que la run se puede _terminar_, no
   solo perder despacio.
 - **`raycaster`** verifica que no hay ojo de pez: mirando de frente a una pared
   plana, todas las columnas deben devolver la misma distancia perpendicular. Es

@@ -5,6 +5,7 @@
 #include "Fixed.h"
 #include "Framebuffer.h"
 #include "Game.h"
+#include "Hud.h"
 #include "Platform.h"
 #include "Renderer.h"
 
@@ -25,8 +26,10 @@ int main(int argc, char** argv) {
 
     Framebuffer fb(WIDTH, HEIGHT);
     Game game;
-    game.newRun(seed);
-    std::printf("run con seed %u\n", seed);
+    // se entra por la pantalla de bienvenida; la semilla queda cargada para la
+    // primera run
+    game.setSeed(seed);
+    std::printf("semilla inicial %u\n", seed);
 
     Input input;
 
@@ -36,37 +39,37 @@ int main(int argc, char** argv) {
     unsigned long long prevTicks = platform.ticksMs();
     unsigned long long fpsTicks = prevTicks;
     int frames = 0;
-    Game::State shownState = Game::State::Playing;
+    Game::State shownState = Game::State::Title;
 
     while (platform.pollInput(input)) {
-        // terminada la run, START arranca otra con una seed nueva
-        if (game.state() != Game::State::Playing && input.start) {
-            seed = uint32_t(platform.ticksMs()) ^ (seed * 2654435761u);
-            game.newRun(seed);
-            std::printf("run nueva con seed %u\n", seed);
-        }
-
+        // el paso entre pantallas lo lleva Game, no el bucle: asi la GBA hereda
+        // el mismo flujo sin repetirlo
         game.update(input, dt);
 
-        renderWorld(fb, game.maze(), game.player());
+        if (game.state() == Game::State::Playing) {
+            renderWorld(fb, game.maze(), game.player());
 
-        // los sprites van despues de las paredes: usan el z-buffer que acaba
-        // de dejar renderWorld
-        SpriteInstance sprites[Game::MAX_ENEMIES];
-        renderSprites(fb, game.player(), sprites,
-                      game.buildSprites(sprites, Game::MAX_ENEMIES));
+            // los sprites van despues de las paredes: usan el z-buffer que
+            // acaba de dejar renderWorld
+            SpriteInstance sprites[Game::MAX_ENEMIES];
+            renderSprites(fb, game.player(), sprites,
+                          game.buildSprites(sprites, Game::MAX_ENEMIES));
 
-        renderMinimap(fb, game.maze(), game.player());
+            renderMinimap(fb, game.maze(), game.player());
+            drawHud(fb, game);
+        } else {
+            drawScreen(fb, game);
+        }
         platform.present(fb);
 
         if (game.state() != shownState) {
             shownState = game.state();
-            if (shownState == Game::State::Dead) {
-                std::printf("RUN OVER  piso %d  bajas %d  seed %u\n", game.floor(),
-                            game.kills(), game.seed());
-            } else if (shownState == Game::State::Cleared) {
-                std::printf("RUN COMPLETADA  bajas %d  seed %u\n", game.kills(),
-                            game.seed());
+            if (shownState == Game::State::Dead ||
+                shownState == Game::State::Cleared) {
+                std::printf("%s  archivo %d  bajas %d  puntos %d  seed %u\n",
+                            shownState == Game::State::Cleared ? "EXTRACCION COMPLETA"
+                                                               : "CONEXION PERDIDA",
+                            game.floor(), game.kills(), game.score(), game.seed());
             }
         }
 
@@ -80,15 +83,9 @@ int main(int argc, char** argv) {
         if (++frames >= 30) {
             unsigned long long elapsed = now - fpsTicks;
             if (elapsed > 0) {
-                const char* tag = game.state() == Game::State::Dead      ? " - MUERTO"
-                                  : game.state() == Game::State::Cleared ? " - COMPLETADO"
-                                                                         : "";
                 char title[96];
-                std::snprintf(title, sizeof(title),
-                              "ARCHIVO %d/%d - HP %d - %d activos - %.0f FPS%s",
-                              game.floor(), Game::FINAL_FLOOR, game.hp(),
-                              game.aliveEnemies(),
-                              frames * 1000.0f / float(elapsed), tag);
+                std::snprintf(title, sizeof(title), "ARCHIVO - %.0f FPS",
+                              frames * 1000.0f / float(elapsed));
                 platform.setTitle(title);
             }
             fpsTicks = now;

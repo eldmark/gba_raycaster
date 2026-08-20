@@ -15,9 +15,11 @@
 class Game {
 public:
     enum class State {
+        Title,     // pantalla de bienvenida
+        Rules,     // reglas, antes de conectar
         Playing,
-        Dead,      // HP a cero: la run termino
-        Cleared,   // se supero el ultimo piso
+        Dead,      // integridad a cero: la run termino
+        Cleared,   // se supero el ultimo archivo
     };
 
     static constexpr int FINAL_FLOOR = 5;  // seccion 26 del PROJECT.md
@@ -32,6 +34,12 @@ public:
     static constexpr fx    GUN_PERIOD = fxFloat(0.35f);  // segundos entre tiros
     static constexpr fx    GUN_RANGE = fxInt(12);
 
+    // Semilla de la SIGUIENTE run. Cada run que empieza la hace avanzar, asi
+    // que dos partidas seguidas no repiten nivel.
+    void setSeed(uint32_t seed) { nextSeed_ = seed ? seed : 1u; }
+
+    // Empieza a jugar ya, saltandose las pantallas. Es la puerta que usan los
+    // tests; el juego normal entra por Title.
     // seed 0 no es valida para el xorshift; se sustituye por una fija.
     void newRun(uint32_t seed);
 
@@ -46,6 +54,17 @@ public:
     int      hpMax() const { return hpMax_; }
     uint32_t seed() const { return seed_; }
     int      kills() const { return kills_; }
+
+    // Puntuacion de la run: bajas, archivos superados y una prima por salir
+    // entero. Se calcula, no se acumula, asi no puede desincronizarse.
+    int score() const;
+
+    // Segundos jugados de esta run, para el marcador final.
+    int elapsedSeconds() const { return fxFloorInt(runTime_); }
+
+    // Cierto durante unas centesimas despues de disparar: lo usa el HUD para
+    // el fogonazo.
+    bool muzzleFlash() const { return muzzle_ > 0; }
 
     // Expuesto para el HUD y para los tests.
     bool onExit() const;
@@ -66,12 +85,17 @@ private:
     Maze   maze_;
     Player player_{};
     Level  level_{};
-    State  state_ = State::Playing;
+    State  state_ = State::Title;
     uint32_t seed_ = 1;
     int floor_ = 1;
     int hp_ = START_HP;
     int hpMax_ = START_HP;
     int kills_ = 0;
+
+    uint32_t nextSeed_ = 1;
+    fx runTime_ = 0;
+    fx muzzle_ = 0;
+    bool prevStart_ = false;  // START se lee por flanco, no por nivel
 
     Enemy enemies_[MAX_ENEMIES];
     int enemyCount_ = 0;

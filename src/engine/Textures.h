@@ -30,6 +30,7 @@ struct Texture {
 // [128..143] rampa de la linea de rejilla del suelo
 // [144..147] colores planos del minimapa
 // [148..171] colores de sprites (3 x 8 niveles)
+// [172..176] colores planos de la interfaz
 constexpr int PAL_WALLS = 0;
 constexpr int PAL_SKY = TEX_COUNT * TEX_COLORS * SHADE_LEVELS;
 constexpr int PAL_FLOOR = PAL_SKY + BG_LEVELS;
@@ -47,7 +48,17 @@ constexpr int SPR_FRAMES = 2;   // animacion de latido del guardian
 constexpr int SPR_COLORS = 3;   // sin contar el transparente
 
 constexpr int PAL_SPRITE = PAL_MAP_PLAYER + 1;
-constexpr int PALETTE_SIZE = PAL_SPRITE + SPR_COLORS * SHADE_LEVELS;
+
+// --- interfaz -----------------------------------------------------------------
+// Planos, sin rampa de sombreado: el HUD no esta en el mundo, asi que no le
+// afecta la distancia.
+constexpr int PAL_UI_TEXT = PAL_SPRITE + SPR_COLORS * SHADE_LEVELS;
+constexpr int PAL_UI_ACCENT = PAL_UI_TEXT + 1;
+constexpr int PAL_UI_DIM = PAL_UI_ACCENT + 1;
+constexpr int PAL_UI_BG = PAL_UI_DIM + 1;
+constexpr int PAL_UI_WARN = PAL_UI_BG + 1;
+
+constexpr int PALETTE_SIZE = PAL_UI_WARN + 1;
 
 // Primer indice del sprite a un nivel de luz. Se le suma (color - 1) *
 // SHADE_LEVELS, igual que en las paredes.
@@ -256,6 +267,15 @@ inline const Assets& assets() {
                     shade(base, float(l + 1) / SHADE_LEVELS);
             }
         }
+        // Interfaz. El verde queda fuera a proposito: es la unica senal de
+        // peligro del juego y en una barra de vida dejaria de serlo (regla 1
+        // de DESIGN.md).
+        a.pal[PAL_UI_TEXT] = rgb(170, 173, 179);   // gris del suelo
+        a.pal[PAL_UI_ACCENT] = rgb(191, 32, 120);  // rosa de los detalles
+        a.pal[PAL_UI_DIM] = rgb(74, 82, 100);      // gris azulado apagado
+        a.pal[PAL_UI_BG] = rgb(12, 16, 26);        // casi negro
+        a.pal[PAL_UI_WARN] = rgb(106, 53, 83);     // rosa sombra: integridad baja
+
         built = true;
     }
     return a;
