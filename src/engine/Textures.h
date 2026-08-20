@@ -24,13 +24,15 @@ struct Texture {
 
 // --- mapa de la paleta --------------------------------------------------------
 // [0..95]    paredes: (tex * TEX_COLORS + color) * SHADE_LEVELS + nivel
-// [96..111]  rampa de cielo
-// [112..127] rampa de piso
-// [128..131] colores planos del minimapa
+// [96..111]  rampa de techo
+// [112..127] rampa de suelo
+// [128..143] rampa de la linea de rejilla del suelo
+// [144..147] colores planos del minimapa
 constexpr int PAL_WALLS = 0;
 constexpr int PAL_SKY = TEX_COUNT * TEX_COLORS * SHADE_LEVELS;
 constexpr int PAL_FLOOR = PAL_SKY + BG_LEVELS;
-constexpr int PAL_MAP_BG = PAL_FLOOR + BG_LEVELS;
+constexpr int PAL_FLOOR_LINE = PAL_FLOOR + BG_LEVELS;
+constexpr int PAL_MAP_BG = PAL_FLOOR_LINE + BG_LEVELS;
 constexpr int PAL_MAP_WALL = PAL_MAP_BG + 1;
 constexpr int PAL_MAP_RAY = PAL_MAP_WALL + 1;
 constexpr int PAL_MAP_PLAYER = PAL_MAP_RAY + 1;
@@ -44,8 +46,9 @@ inline uint8_t wallBase(int texId, int level) {
     return uint8_t((texId * TEX_COLORS) * SHADE_LEVELS + level);
 }
 
-// Cada caracter del laberinto elige una textura. Conserva la distincion que
-// tenia wall_color() en la version Rust.
+// Cada caracter del mapa elige un material (ver la tabla de DESIGN.md). El
+// generador reparte uno distinto por sala, de modo que dos salas contiguas
+// nunca se ven iguales.
 inline int texIndex(char impact) {
     switch (impact) {
         case '-': return 1;
@@ -65,74 +68,81 @@ inline uint8_t noise(int x, int y) {
     return uint8_t(h);
 }
 
-// Sillares de 32x32 con junta de 2 px, hiladas alternas desfasadas.
-inline void fillStone(Texture& t) {
+// PANEL: placas de 32x32 con junta rosa y un nodo en cada cruce. La superficie
+// se deja casi lisa a proposito: el detalle vive en las juntas, no en el relleno.
+inline void fillPanel(Texture& t) {
     for (int y = 0; y < TEX_SIZE; ++y) {
-        int off = ((y >> 5) & 1) ? 16 : 0;
         for (int x = 0; x < TEX_SIZE; ++x) {
-            int bx = (x + off) & 31;
+            int bx = x & 31, by = y & 31;
             uint8_t c;
-            if (bx < 2 || (y & 31) < 2) {
-                c = 3;  // junta
+            if (bx == 0 || by == 0) {
+                c = 3;  // junta rosa
+            } else if (bx < 3 && by < 3) {
+                c = 3;  // nodo de la esquina
+            } else if (bx < 2 || by < 2) {
+                c = 0;  // bisel iluminado junto a la junta
             } else {
-                // ruido a media resolucion: a pixel completo queda como nieve
-                uint8_t n = noise(x >> 1, y >> 1);
-                c = (n < 48) ? 2 : (n < 160 ? 1 : 0);
+                // banda mas oscura en la mitad baja: da un arriba y un abajo
+                c = (by > 20) ? 2 : 1;
             }
             t.px[y * TEX_SIZE + x] = c;
         }
     }
 }
 
-// Ladrillos de 32x16 con mortero de 2 px y franja superior clara: da relieve
-// sin necesidad de normales ni luz real.
-inline void fillBricks(Texture& t) {
+// CONDUIT: conductos verticales cada 16 px con datos corriendo dentro. Los
+// tramos rosa son de largo desigual, si no se lee como una cremallera.
+inline void fillConduit(Texture& t) {
     for (int y = 0; y < TEX_SIZE; ++y) {
-        int off = ((y >> 4) & 1) ? 16 : 0;
         for (int x = 0; x < TEX_SIZE; ++x) {
-            int bx = (x + off) & 31;
-            int by = y & 15;
+            int bx = x & 15;
             uint8_t c;
-            if (by < 2 || bx < 2) {
-                c = 3;  // mortero
-            } else if (by < 4) {
-                c = 0;  // canto iluminado del ladrillo
+            if (bx == 0) {
+                c = 2;  // separacion entre conductos
+            } else if (bx >= 6 && bx <= 9) {
+                // el canal del dato: encendido a tramos
+                c = ((y + (x >> 4) * 5) & 15) < 9 ? 3 : 2;
+            } else if (bx == 5 || bx == 10) {
+                c = 0;  // borde brillante del canal
             } else {
-                c = (noise(x >> 1, y >> 1) < 70) ? 2 : 1;
+                c = 1;
             }
             t.px[y * TEX_SIZE + x] = c;
         }
     }
 }
 
-// Paneles metalicos de 16x32 con bisel lateral y un remache al centro.
-inline void fillPanels(Texture& t) {
+// GRID: rejilla fina gris sobre el azul base, con los cruces marcados. Es el
+// material mas "vacio" de los tres, para que las salas que lo usan se lean
+// como espacio muerto.
+inline void fillGrid(Texture& t) {
     for (int y = 0; y < TEX_SIZE; ++y) {
         for (int x = 0; x < TEX_SIZE; ++x) {
-            int px = x & 15;
-            int py = y & 31;
+            bool lineX = (x & 7) == 0;
+            bool lineY = (y & 7) == 0;
             uint8_t c;
-            if (px < 1 || py < 1) {
-                c = 3;  // costura
+            if (lineX && lineY) {
+                c = 3;  // cruce
+            } else if (lineX || lineY) {
+                c = 0;  // linea gris
             } else {
-                int dx = px - 8;
-                int dy = (py & 15) - 8;
-                if (dx * dx + dy * dy <= 4) {
-                    c = (dy < 0) ? 0 : 2;  // remache: brillo arriba, sombra abajo
-                } else {
-                    c = (px < 3) ? 0 : (px > 12 ? 2 : 1);  // bisel del panel
-                }
+                c = ((x & 7) < 4) == ((y & 7) < 4) ? 1 : 2;  // damero muy sutil
             }
             t.px[y * TEX_SIZE + x] = c;
         }
     }
 }
 
-// Colores base: [0] claro, [1] medio, [2] oscuro, [3] junta.
+// Paleta de DESIGN.md. Por textura: [0] claro, [1] base, [2] sombra, [3] acento.
+// Los tonos derivados salen de escalar el azul base #23314A, nunca de elegir un
+// color nuevo a ojo.
 constexpr uint8_t BASE_RGB[TEX_COUNT][TEX_COLORS][3] = {
-    {{150, 160, 175}, {110, 120, 138}, {78, 86, 102}, {48, 54, 66}},   // piedra
-    {{178, 92, 66},   {146, 70, 50},   {112, 52, 38}, {92, 88, 80}},   // ladrillo
-    {{120, 168, 214}, {74, 116, 160},  {46, 76, 110}, {26, 42, 64}},   // metal
+    // PANEL: azul con juntas en rosa fuerte
+    {{56, 78, 118}, {35, 49, 74}, {19, 27, 41}, {191, 32, 120}},
+    // CONDUIT: azul mas claro, dato en rosa fuerte
+    {{74, 98, 140}, {40, 56, 84}, {22, 31, 47}, {191, 32, 120}},
+    // GRID: lineas grises sobre azul, cruces en rosa sombra
+    {{170, 173, 179}, {31, 43, 66}, {19, 27, 41}, {106, 53, 83}},
 };
 
 }  // namespace detail
@@ -147,9 +157,9 @@ inline const Assets& assets() {
     static Assets a;
     static bool built = false;
     if (!built) {
-        detail::fillStone(a.tex[0]);
-        detail::fillBricks(a.tex[1]);
-        detail::fillPanels(a.tex[2]);
+        detail::fillPanel(a.tex[0]);
+        detail::fillConduit(a.tex[1]);
+        detail::fillGrid(a.tex[2]);
 
         for (int t = 0; t < TEX_COUNT; ++t) {
             for (int c = 0; c < TEX_COLORS; ++c) {
@@ -162,18 +172,24 @@ inline const Assets& assets() {
             }
         }
 
-        // cielo: oscuro arriba, mas claro hacia el horizonte.
-        // piso: oscuro en el horizonte (lejos), mas claro a los pies (cerca).
+        // Techo: casi negro arriba, azul base cerca del horizonte. No lleva
+        // detalle a proposito (regla 4 de DESIGN.md).
+        // Suelo: gris, oscuro en el horizonte (lejos) y claro a los pies.
         for (int l = 0; l < BG_LEVELS; ++l) {
             float f = float(l + 1) / BG_LEVELS;
-            a.pal[PAL_SKY + l] = shade(rgb(70, 96, 150), 0.35f + 0.65f * f);
-            a.pal[PAL_FLOOR + l] = shade(rgb(96, 84, 68), 0.35f + 0.65f * f);
+            a.pal[PAL_SKY + l] = shade(rgb(35, 49, 74), 0.12f + 0.55f * f);
+            a.pal[PAL_FLOOR + l] = shade(rgb(170, 173, 179), 0.18f + 0.52f * f);
+            // linea de la rejilla: el mismo gris del suelo pero mas claro, no
+            // rosa. El rosa es acento de pared y en el suelo, repetido doce
+            // veces, deja de ser acento (regla 2 de DESIGN.md).
+            a.pal[PAL_FLOOR_LINE + l] =
+                shade(rgb(170, 173, 179), 0.30f + 0.70f * f);
         }
 
-        a.pal[PAL_MAP_BG] = rgb(0, 0, 0);
-        a.pal[PAL_MAP_WALL] = rgb(102, 191, 255);
-        a.pal[PAL_MAP_RAY] = rgb(230, 41, 55);
-        a.pal[PAL_MAP_PLAYER] = rgb(253, 249, 0);
+        a.pal[PAL_MAP_BG] = rgb(10, 14, 22);
+        a.pal[PAL_MAP_WALL] = rgb(35, 49, 74);
+        a.pal[PAL_MAP_RAY] = rgb(191, 32, 120);
+        a.pal[PAL_MAP_PLAYER] = rgb(170, 173, 179);
         built = true;
     }
     return a;

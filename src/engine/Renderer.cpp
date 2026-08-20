@@ -19,6 +19,11 @@ constexpr fx INV_SHADE_RANGE = fxFloat(1.0f / 12.5f);
 constexpr fx MIN_LIGHT = fxFloat(0.25f);
 constexpr fx SIDE_LIGHT = fxFloat(0.7f);
 
+// Lineas de rejilla del suelo, contadas en medias celdas. Las enteras solas
+// dejan vacio el campo cercano, porque la primera cae justo en el borde de
+// abajo de la pantalla; mas alla de estas, todas caen sobre la misma fila.
+constexpr int GRID_STEPS = 20;
+
 // Devuelve el NIVEL de la rampa, no un factor: el sombreado ya esta horneado en
 // la paleta, asi que el bucle interno solo suma este entero al indice.
 int shadeLevel(fx perpDist, int side) {
@@ -64,6 +69,17 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         int f0 = half + (h - half) * b / BG_LEVELS;
         int f1 = half + (h - half) * (b + 1) / BG_LEVELS;
         fb.fillRect(0, f0, w, f1 - f0, uint8_t(PAL_FLOOR + b));
+    }
+
+    // Rejilla del suelo. Las lineas van a distancias de mundo enteras, y una
+    // pared a distancia d se proyecta a h/d, asi que la fila de la linea sale
+    // de la misma division: quedan juntas cerca del horizonte y separadas a los
+    // pies, que es lo que hace que se lea como perspectiva y no como rayas.
+    for (int i = 3; i <= GRID_STEPS; ++i) {
+        int y = half + 2 * (h - half) / i;  // i son medias celdas de distancia
+        if (y >= h) continue;
+        int level = std::clamp(BG_LEVELS - i / 2, 0, BG_LEVELS - 1);
+        fb.fillRect(0, y, w, 1, uint8_t(PAL_FLOOR_LINE + level));
     }
 
     // cameraX barre [-1, 1) de a pasos iguales. Incremental para no pagar una
