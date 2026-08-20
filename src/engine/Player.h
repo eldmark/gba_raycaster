@@ -16,6 +16,7 @@ struct Input {
     bool right = false;
     bool fwd = false;
     bool back = false;
+    bool start = false;  // START en GBA: reiniciar / pausar
 };
 
 // Mueve y rota al jugador respetando las paredes. dt en segundos (16.16).

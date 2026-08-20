@@ -17,7 +17,10 @@ bool collides(const Maze& maze, fx x, fx y) {
     for (const auto& o : off) {
         // el shift aritmetico de fxFloorInt redondea hacia abajo tambien con
         // negativos: -0.5 cae en la celda -1, no en la 0
-        if (maze.at(fxFloorInt(x + o[0]), fxFloorInt(y + o[1])) != ' ') return true;
+        // isWall y no una comparacion propia: que cuenta como suelo lo decide
+        // Maze en un solo sitio, si no una textura nueva vuelve solida media
+        // pared sin que nadie lo note
+        if (maze.isWall(fxFloorInt(x + o[0]), fxFloorInt(y + o[1]))) return true;
     }
     return false;
 }

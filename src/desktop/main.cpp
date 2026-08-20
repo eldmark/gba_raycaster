@@ -1,34 +1,33 @@
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 #include "Fixed.h"
 #include "Framebuffer.h"
-#include "Maze.h"
+#include "Game.h"
 #include "Platform.h"
-#include "Player.h"
 #include "Renderer.h"
 
 constexpr int WIDTH = 900;
 constexpr int HEIGHT = 600;
 
 int main(int argc, char** argv) {
-    const char* mazePath = (argc > 1) ? argv[1] : "maze.txt";
-
-    Maze maze;
-    if (!maze.load(mazePath)) {
-        std::fprintf(stderr, "no se pudo cargar el laberinto: %s\n", mazePath);
-        return 1;
-    }
+    // La seed se puede fijar por linea de comandos para reproducir una run
+    // exacta (seccion 14 del PROJECT.md); sin argumento, cada partida es nueva.
+    uint32_t seed = (argc > 1) ? uint32_t(std::strtoul(argv[1], nullptr, 10))
+                               : uint32_t(std::time(nullptr));
 
     Platform platform;
-    if (!platform.init(WIDTH, HEIGHT, "Laberinto")) {
+    if (!platform.init(WIDTH, HEIGHT, "Roguelike GBA")) {
         platform.shutdown();
         return 1;
     }
 
     Framebuffer fb(WIDTH, HEIGHT);
-    // fov de 60 grados, guardado ya como tan(fov/2) para no calcularlo por frame
-    Player player{fxFloat(1.5f), fxFloat(1.5f), angleFromRad(1.04719755f),
-                  fxFloat(0.57735027f)};
+    Game game;
+    game.newRun(seed);
+    std::printf("run con seed %u\n", seed);
+
     Input input;
 
     // el motor Rust movia por frame a 60 FPS fijos; aca se mide dt real y las
@@ -37,13 +36,32 @@ int main(int argc, char** argv) {
     unsigned long long prevTicks = platform.ticksMs();
     unsigned long long fpsTicks = prevTicks;
     int frames = 0;
+    Game::State shownState = Game::State::Playing;
 
     while (platform.pollInput(input)) {
-        updatePlayer(player, input, maze, dt);
+        // terminada la run, START arranca otra con una seed nueva
+        if (game.state() != Game::State::Playing && input.start) {
+            seed = uint32_t(platform.ticksMs()) ^ (seed * 2654435761u);
+            game.newRun(seed);
+            std::printf("run nueva con seed %u\n", seed);
+        }
 
-        renderWorld(fb, maze, player);
-        renderMinimap(fb, maze, player);
+        game.update(input, dt);
+
+        renderWorld(fb, game.maze(), game.player());
+        renderMinimap(fb, game.maze(), game.player());
         platform.present(fb);
+
+        if (game.state() != shownState) {
+            shownState = game.state();
+            if (shownState == Game::State::Dead) {
+                std::printf("RUN OVER  piso %d  bajas %d  seed %u\n", game.floor(),
+                            game.kills(), game.seed());
+            } else if (shownState == Game::State::Cleared) {
+                std::printf("RUN COMPLETADA  bajas %d  seed %u\n", game.kills(),
+                            game.seed());
+            }
+        }
 
         unsigned long long now = platform.ticksMs();
         fx measured = fx((now - prevTicks) * FX_ONE / 1000);
@@ -55,9 +73,14 @@ int main(int argc, char** argv) {
         if (++frames >= 30) {
             unsigned long long elapsed = now - fpsTicks;
             if (elapsed > 0) {
-                char title[64];
-                std::snprintf(title, sizeof(title), "Laberinto - %.0f FPS",
-                              frames * 1000.0f / float(elapsed));
+                const char* tag = game.state() == Game::State::Dead      ? " - MUERTO"
+                                  : game.state() == Game::State::Cleared ? " - COMPLETADO"
+                                                                         : "";
+                char title[96];
+                std::snprintf(title, sizeof(title),
+                              "Roguelike GBA - piso %d/%d - HP %d - %.0f FPS%s",
+                              game.floor(), Game::FINAL_FLOOR, game.hp(),
+                              frames * 1000.0f / float(elapsed), tag);
                 platform.setTitle(title);
             }
             fpsTicks = now;
