@@ -1,37 +1,40 @@
 #include "Player.h"
 
-#include <cmath>
-
 #include "Maze.h"
 
 // Constantes portadas del original en pixeles (BLOCK_SIZE = 40) a celdas.
 // El bucle de raylib corria fijo a 60 FPS, asi que lo por-frame pasa a por-segundo.
-constexpr float MOVE_SPEED = 4.5f;      // 3.0 px/frame * 60 / 40
-constexpr float ROTATION_SPEED = 3.0f;  // 0.05 rad/frame * 60
-constexpr float RADIUS = 0.125f;        // 5.0 px / 40
+namespace {
+constexpr fx MOVE_SPEED = fxFloat(4.5f);   // 3.0 px/frame * 60 / 40
+constexpr fx RADIUS = fxFloat(0.125f);     // 5.0 px / 40
 
-bool collides(const Maze& maze, float x, float y) {
-    const float off[4][2] = {{-RADIUS, 0.0f}, {RADIUS, 0.0f}, {0.0f, -RADIUS}, {0.0f, RADIUS}};
+// 3.0 rad/s pasados a la unidad de angle: 3.0 / (2*PI) * 65536.
+constexpr int32_t ROTATION_SPEED = 31294;  // unidades de angulo por segundo
+}  // namespace
+
+bool collides(const Maze& maze, fx x, fx y) {
+    const fx off[4][2] = {{-RADIUS, 0}, {RADIUS, 0}, {0, -RADIUS}, {0, RADIUS}};
     for (const auto& o : off) {
-        // floor y no truncado: -0.5 cae en la celda -1, no en la 0
-        int i = static_cast<int>(std::floor(x + o[0]));
-        int j = static_cast<int>(std::floor(y + o[1]));
-        if (maze.at(i, j) != ' ') return true;
+        // el shift aritmetico de fxFloorInt redondea hacia abajo tambien con
+        // negativos: -0.5 cae en la celda -1, no en la 0
+        if (maze.at(fxFloorInt(x + o[0]), fxFloorInt(y + o[1])) != ' ') return true;
     }
     return false;
 }
 
-void updatePlayer(Player& player, const Input& input, const Maze& maze, float dt) {
-    if (input.left) player.a -= ROTATION_SPEED * dt;
-    if (input.right) player.a += ROTATION_SPEED * dt;
+void updatePlayer(Player& player, const Input& input, const Maze& maze, fx dt) {
+    // dt ya es 16.16, asi que el >> FX_BITS deja el giro en unidades de angulo
+    angle turn = angle((ROTATION_SPEED * int64_t(dt)) >> FX_BITS);
+    if (input.left) player.a -= turn;
+    if (input.right) player.a += turn;
 
-    float step = 0.0f;
-    if (input.fwd) step = MOVE_SPEED * dt;
-    if (input.back) step = -MOVE_SPEED * dt;
-    if (step == 0.0f) return;
+    fx step = 0;
+    if (input.fwd) step = fxMul(MOVE_SPEED, dt);
+    if (input.back) step = -fxMul(MOVE_SPEED, dt);
+    if (step == 0) return;
 
-    float dx = step * std::cos(player.a);
-    float dy = step * std::sin(player.a);
+    fx dx = fxMul(step, fxCos(player.a));
+    fx dy = fxMul(step, fxSin(player.a));
 
     // ponytail: se prueba cada eje por separado para poder deslizarse contra la pared
     if (!collides(maze, player.x + dx, player.y)) player.x += dx;

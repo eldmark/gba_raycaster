@@ -1,40 +1,46 @@
 #include "Raycaster.h"
 
-#include <cmath>
-
 namespace {
-// Direccion con componente 0: la distancia entre cruces de ese eje es infinita.
-constexpr float kHuge = 1e30f;
-// El llamador divide entre perpDist; nunca dejarlo llegar a 0.
-constexpr float kMinDist = 1e-4f;
+// Direccion con componente casi 0: la distancia entre cruces de ese eje es
+// "infinita". 4096 celdas es mas ancho que cualquier mapa y, a diferencia de
+// INT32_MAX, se puede multiplicar por una fraccion sin desbordar el 16.16.
+constexpr fx kHuge = fxInt(4096);
+
+// Por debajo de esto, 1/dir ya no cabe: se trata como componente nula.
+constexpr fx kMinDir = FX_ONE / 4096;
+
 // Corte defensivo: at() devuelve '+' fuera del mapa, asi que el DDA ya termina
 // solo, pero una posicion degenerada no debe poder colgar el frame.
 constexpr int kMaxSteps = 256;
 }  // namespace
 
-Hit castRay(const Maze& maze, float posX, float posY, float dirX, float dirY) {
-    int mapX = static_cast<int>(std::floor(posX));
-    int mapY = static_cast<int>(std::floor(posY));
+Hit castRay(const Maze& maze, fx posX, fx posY, fx dirX, fx dirY) {
+    int mapX = fxFloorInt(posX);
+    int mapY = fxFloorInt(posY);
 
-    float deltaDistX = (dirX == 0.0f) ? kHuge : std::fabs(1.0f / dirX);
-    float deltaDistY = (dirY == 0.0f) ? kHuge : std::fabs(1.0f / dirY);
+    // 2 de las 3 divisiones que cuesta cada columna. Si la GBA no llega a 60
+    // FPS, el primer recorte es una LUT de reciprocos indexada por el rayo.
+    fx absX = fxAbs(dirX);
+    fx absY = fxAbs(dirY);
+    fx deltaDistX = (absX < kMinDir) ? kHuge : fxDiv(FX_ONE, absX);
+    fx deltaDistY = (absY < kMinDir) ? kHuge : fxDiv(FX_ONE, absY);
 
     int stepX, stepY;
-    float sideDistX, sideDistY;
+    fx sideDistX, sideDistY;
 
-    if (dirX < 0.0f) {
+    if (dirX < 0) {
         stepX = -1;
-        sideDistX = (posX - mapX) * deltaDistX;
+        sideDistX = fxMul(fxFrac(posX), deltaDistX);
     } else {
         stepX = 1;
-        sideDistX = (mapX + 1.0f - posX) * deltaDistX;
+        sideDistX = fxMul(FX_ONE - fxFrac(posX), deltaDistX);
     }
-    if (dirY < 0.0f) {
+    if (dirY < 0) {
         stepY = -1;
-        sideDistY = (posY - mapY) * deltaDistY;
+        sideDistY = fxMul(fxFrac(posY), deltaDistY);
     } else {
         stepY = 1;
-        sideDistY = (mapY + 1.0f - posY) * deltaDistY;
+        sideDistY = fxMul(FX_ONE - fxFrac(posY), deltaDistY);
     }
 
     int side = 0;
@@ -55,11 +61,12 @@ Hit castRay(const Maze& maze, float posX, float posY, float dirX, float dirY) {
     // Restar el ultimo delta deshace el paso que se acaba de dar: queda la
     // distancia hasta la cara, ya proyectada sobre la direccion de camara
     // (sin ojo de pez). El llamador NO debe multiplicar por ningun coseno.
-    float perpDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
-    if (!(perpDist > kMinDist)) perpDist = kMinDist;  // atrapa NaN tambien
+    fx perpDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+    if (perpDist < kMinDist) perpDist = kMinDist;
 
-    float wallX = (side == 0) ? (posY + perpDist * dirY) : (posX + perpDist * dirX);
-    wallX -= std::floor(wallX);
+    fx wallX = (side == 0) ? (posY + fxMul(perpDist, dirY))
+                           : (posX + fxMul(perpDist, dirX));
+    wallX = fxFrac(wallX);  // enmascarar ya da el [0,1) tambien con negativos
 
     return Hit{perpDist, maze.at(mapX, mapY), side, wallX, mapX, mapY};
 }

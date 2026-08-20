@@ -15,6 +15,7 @@ add_compile_options(-Wall -Wextra)
 # Esta biblioteca es la que sobrevive intacta al port a Game Boy Advance.
 # Si alguna vez necesita enlazar contra SDL, algo se rompio.
 add_library(engine STATIC
+    src/Fixed.cpp
     src/Maze.cpp
     src/Player.cpp
     src/Raycaster.cpp

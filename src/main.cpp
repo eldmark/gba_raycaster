@@ -1,5 +1,6 @@
 #include <cstdio>
 
+#include "Fixed.h"
 #include "Framebuffer.h"
 #include "Maze.h"
 #include "Platform.h"
@@ -8,7 +9,6 @@
 
 constexpr int WIDTH = 900;
 constexpr int HEIGHT = 600;
-constexpr float PI = 3.14159265358979f;
 
 int main(int argc, char** argv) {
     const char* mazePath = (argc > 1) ? argv[1] : "maze.txt";
@@ -26,12 +26,14 @@ int main(int argc, char** argv) {
     }
 
     Framebuffer fb(WIDTH, HEIGHT);
-    Player player{1.5f, 1.5f, PI / 3.0f, PI / 3.0f};
+    // fov de 60 grados, guardado ya como tan(fov/2) para no calcularlo por frame
+    Player player{fxFloat(1.5f), fxFloat(1.5f), angleFromRad(1.04719755f),
+                  fxFloat(0.57735027f)};
     Input input;
 
     // el motor Rust movia por frame a 60 FPS fijos; aca se mide dt real y las
     // velocidades estan en unidades por segundo. El primer frame usa 1/60.
-    float dt = 1.0f / 60.0f;
+    fx dt = FX_ONE / 60;
     unsigned long long prevTicks = platform.ticksMs();
     unsigned long long fpsTicks = prevTicks;
     int frames = 0;
@@ -44,10 +46,10 @@ int main(int argc, char** argv) {
         platform.present(fb);
 
         unsigned long long now = platform.ticksMs();
-        float measured = (now - prevTicks) / 1000.0f;
+        fx measured = fx((now - prevTicks) * FX_ONE / 1000);
         // se descarta un dt absurdo (arrastre de ventana, breakpoint) para que
         // el jugador no se teletransporte atravesando una pared
-        if (measured > 0.0f && measured < 0.25f) dt = measured;
+        if (measured > 0 && measured < FX_ONE / 4) dt = measured;
         prevTicks = now;
 
         if (++frames >= 30) {

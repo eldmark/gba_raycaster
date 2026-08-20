@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Fixed.h"
+
 class Maze;
 
 struct Player {
-    float x, y;  // posicion en celdas
-    float a;     // angulo de vista en radianes
-    float fov;   // campo de vision en radianes
+    fx    x, y;  // posicion en celdas
+    angle a;     // angulo de vista; 65536 = una vuelta, se envuelve solo
+    fx    fov;   // campo de vision, guardado ya como tan(fov/2)
 };
 
 // Entrada abstracta: el motor no sabe de SDL ni de teclas del GBA.
@@ -16,8 +18,8 @@ struct Input {
     bool back = false;
 };
 
-// Mueve y rota al jugador respetando las paredes. dt en segundos.
-void updatePlayer(Player& player, const Input& input, const Maze& maze, float dt);
+// Mueve y rota al jugador respetando las paredes. dt en segundos (16.16).
+void updatePlayer(Player& player, const Input& input, const Maze& maze, fx dt);
 
 // Expuesto para poder testearlo aparte.
-bool collides(const Maze& maze, float x, float y);
+bool collides(const Maze& maze, fx x, fx y);

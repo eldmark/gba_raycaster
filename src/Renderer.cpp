@@ -1,7 +1,8 @@
 #include "Renderer.h"
 
 #include <algorithm>
-#include <cmath>
+
+#include "Fixed.h"
 
 #include "Framebuffer.h"
 #include "Maze.h"
@@ -12,32 +13,37 @@
 namespace {
 
 // El Rust oscurecia con (1 - d/500) sobre distancias en pixeles de mundo.
-// En celdas, 500 px / 40 px por celda = 12.5 celdas.
-constexpr float SHADE_RANGE = 12.5f;
+// En celdas, 500 px / 40 px por celda = 12.5 celdas. Se guarda el reciproco
+// para que el sombreado sea una multiplicacion y no una division.
+constexpr fx INV_SHADE_RANGE = fxFloat(1.0f / 12.5f);
+constexpr fx MIN_LIGHT = fxFloat(0.25f);
+constexpr fx SIDE_LIGHT = fxFloat(0.7f);
 
 // Devuelve el NIVEL de la rampa, no un factor: el sombreado ya esta horneado en
 // la paleta, asi que el bucle interno solo suma este entero al indice.
-int shadeLevel(float perpDist, int side) {
-    float light = std::clamp(1.0f - perpDist / SHADE_RANGE, 0.25f, 1.0f);
+int shadeLevel(fx perpDist, int side) {
+    fx light = FX_ONE - fxMul(perpDist, INV_SHADE_RANGE);
+    light = std::clamp(light, MIN_LIGHT, FX_ONE);
     // las caras horizontales van mas oscuras, como en Wolf3D: da volumen sin
     // necesidad de iluminacion real.
-    if (side == 1) light *= 0.7f;
-    return std::clamp(int(light * SHADE_LEVELS), 0, SHADE_LEVELS - 1);
+    if (side == 1) light = fxMul(light, SIDE_LIGHT);
+    return std::clamp(int((light * SHADE_LEVELS) >> FX_BITS), 0, SHADE_LEVELS - 1);
 }
 
 // Base de camara de Wolf3D: dir mira al frente, plane es perpendicular y mide
 // tan(fov/2). rayDir = dir + plane * cameraX barre el FOV exacto, y de yapa
 // deja el vector sin normalizar para que el t del DDA salga perpendicular.
 struct Camera {
-    float dirX, dirY;
-    float planeX, planeY;
+    fx dirX, dirY;
+    fx planeX, planeY;
 };
 
 Camera cameraOf(const Player& p) {
-    float dirX = std::cos(p.a);
-    float dirY = std::sin(p.a);
-    float half = std::tan(p.fov * 0.5f);
-    return {dirX, dirY, -dirY * half, dirX * half};
+    // p.fov ya viene como tan(fov/2): la tangente se calcula al crear al
+    // jugador, no una vez por frame.
+    fx dirX = fxCos(p.a);
+    fx dirY = fxSin(p.a);
+    return {dirX, dirY, -fxMul(dirY, p.fov), fxMul(dirX, p.fov)};
 }
 
 }  // namespace
@@ -60,27 +66,35 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         fb.fillRect(0, f0, w, f1 - f0, uint8_t(PAL_FLOOR + b));
     }
 
-    for (int x = 0; x < w; ++x) {
-        float cameraX = 2.0f * x / w - 1.0f;
-        float rayX = cam.dirX + cam.planeX * cameraX;
-        float rayY = cam.dirY + cam.planeY * cameraX;
+    // cameraX barre [-1, 1) de a pasos iguales. Incremental para no pagar una
+    // division por columna: la unica que queda es la de la altura.
+    const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(w));
+    fx cameraX = -FX_ONE;
+
+    // TEX_SIZE/h es constante, asi que el avance en textura sale de una
+    // multiplicacion por perpDist en vez de dividir entre la altura proyectada.
+    const fx texPerDist = fxDiv(fxInt(TEX_SIZE), fxInt(h));
+
+    for (int x = 0; x < w; ++x, cameraX += cameraStep) {
+        fx rayX = cam.dirX + fxMul(cam.planeX, cameraX);
+        fx rayY = cam.dirY + fxMul(cam.planeY, cameraX);
 
         Hit hit = castRay(maze, player.x, player.y, rayX, rayY);
 
         // altura proyectada; equivale al BLOCK_SIZE*HEIGHT/d del Rust porque
         // alla d estaba en pixeles de mundo y aca perpDist esta en celdas.
-        float stakeHeight = h / hit.perpDist;
-        float exactTop = half - stakeHeight * 0.5f;
-        int top = std::max(0, int(exactTop));
-        int bottom = std::min(h, int(half + stakeHeight * 0.5f));
+        fx stakeHeight = fxDiv(fxInt(h), hit.perpDist);
+        fx exactTop = fxInt(half) - (stakeHeight >> 1);
+        int top = std::max(0, fxFloorInt(exactTop));
+        int bottom = std::min(h, fxFloorInt(fxInt(half) + (stakeHeight >> 1)));
 
         // caras que miran a -X / -Y se espejan, si no la textura sale invertida
         // al rodear una esquina y se nota la costura.
-        float u = hit.wallX;
-        if ((hit.side == 0 && rayX < 0.0f) || (hit.side == 1 && rayY > 0.0f)) {
-            u = 1.0f - u;
+        fx u = hit.wallX;
+        if ((hit.side == 0 && rayX < 0) || (hit.side == 1 && rayY > 0)) {
+            u = FX_ONE - 1 - u;
         }
-        int texX = std::min(int(u * TEX_SIZE), TEX_SIZE - 1);
+        int texX = (u * TEX_SIZE) >> FX_BITS;
 
         const int texId = texIndex(hit.impact);
         const Texture& tex = textures()[texId];
@@ -89,59 +103,62 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         // avance en la textura por pixel de pantalla. texPos arranca desde
         // exactTop y no desde top, asi la textura no "resbala" cuando la pared
         // se sale por arriba de la pantalla.
-        float step = float(TEX_SIZE) / stakeHeight;
-        float texPos = (top - exactTop) * step;
+        fx step = fxMul(hit.perpDist, texPerDist);
+        fx texPos = fxMul(fxInt(top) - exactTop, step);
 
-        for (int y = top; y < bottom; ++y) {
-            int texY = int(texPos) & (TEX_SIZE - 1);
-            texPos += step;
-            fb.setPixel(x, y, uint8_t(base + tex.px[texY * TEX_SIZE + texX] * SHADE_LEVELS));
+        const uint8_t* col = tex.px + texX;
+        for (int y = top; y < bottom; ++y, texPos += step) {
+            int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
+            fb.setPixel(x, y, uint8_t(base + col[texY * TEX_SIZE] * SHADE_LEVELS));
         }
     }
 }
 
 void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
-    // el Rust escalaba 0.18 sobre celdas de 40 px -> 7.2 px por celda
-    constexpr float CELL = 7.2f;
-    constexpr int MARGIN = 10;
-    constexpr int NUM_RAYS = 50;
+    // La rubrica lo exige en una esquina, no al lado del mapa principal: se
+    // dimensiona como fraccion de la pantalla para que ocupe lo mismo en el
+    // escritorio que en los 240x160 de la GBA.
+    constexpr int NUM_RAYS = 24;
+    const int cell = std::max(2, fb.width() / (maze.width() * 6));
+    const int margin = cell;
 
-    auto toMapX = [](float cx) { return MARGIN + int(cx * CELL); };
-    auto toMapY = [](float cy) { return MARGIN + int(cy * CELL); };
+    auto toMapX = [&](fx cx) { return margin + ((cx * cell) >> FX_BITS); };
+    auto toMapY = [&](fx cy) { return margin + ((cy * cell) >> FX_BITS); };
 
-    fb.fillRect(MARGIN - 2, MARGIN - 2, int(maze.width() * CELL) + 4,
-                int(maze.height() * CELL) + 4, PAL_MAP_BG);
+    fb.fillRect(margin - 1, margin - 1, maze.width() * cell + 2,
+                maze.height() * cell + 2, PAL_MAP_BG);
 
     for (int j = 0; j < maze.height(); ++j) {
         for (int i = 0; i < maze.width(); ++i) {
             if (!maze.isWall(i, j)) continue;
-            fb.fillRect(toMapX(float(i)), toMapY(float(j)), int(CELL) + 1,
-                        int(CELL) + 1, PAL_MAP_WALL);
+            fb.fillRect(margin + i * cell, margin + j * cell, cell, cell,
+                        PAL_MAP_WALL);
         }
     }
 
     const Camera cam = cameraOf(player);
-    int px = toMapX(player.x);
-    int py = toMapY(player.y);
+    const int px = toMapX(player.x);
+    const int py = toMapY(player.y);
 
-    for (int i = 0; i < NUM_RAYS; ++i) {
-        float cameraX = 2.0f * i / NUM_RAYS - 1.0f;
-        float rayX = cam.dirX + cam.planeX * cameraX;
-        float rayY = cam.dirY + cam.planeY * cameraX;
+    const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(NUM_RAYS));
+    fx cameraX = -FX_ONE;
+
+    for (int i = 0; i < NUM_RAYS; ++i, cameraX += cameraStep) {
+        fx rayX = cam.dirX + fxMul(cam.planeX, cameraX);
+        fx rayY = cam.dirY + fxMul(cam.planeY, cameraX);
         Hit hit = castRay(maze, player.x, player.y, rayX, rayY);
 
         // hit = pos + perpDist * rayDir, por definicion del DDA
-        int hx = toMapX(player.x + hit.perpDist * rayX);
-        int hy = toMapY(player.y + hit.perpDist * rayY);
+        int hx = toMapX(player.x + fxMul(hit.perpDist, rayX));
+        int hy = toMapY(player.y + fxMul(hit.perpDist, rayY));
 
         // linea con interpolacion, portada de Framebuffer::draw_line del Rust
         int steps = std::max({std::abs(hx - px), std::abs(hy - py), 1});
         for (int s = 0; s <= steps; ++s) {
-            float t = float(s) / steps;
-            fb.setPixel(int(px + (hx - px) * t), int(py + (hy - py) * t),
+            fb.setPixel(px + (hx - px) * s / steps, py + (hy - py) * s / steps,
                         PAL_MAP_RAY);
         }
     }
 
-    fb.fillRect(px - 2, py - 2, 4, 4, PAL_MAP_PLAYER);
+    fb.fillRect(px - 1, py - 1, 3, 3, PAL_MAP_PLAYER);
 }
