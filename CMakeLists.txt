@@ -15,21 +15,21 @@ add_compile_options(-Wall -Wextra)
 # Esta biblioteca es la que sobrevive intacta al port a Game Boy Advance.
 # Si alguna vez necesita enlazar contra SDL, algo se rompio.
 add_library(engine STATIC
-    src/Fixed.cpp
-    src/Maze.cpp
-    src/Player.cpp
-    src/Raycaster.cpp
-    src/Renderer.cpp
-    src/Framebuffer.cpp
+    src/engine/Fixed.cpp
+    src/engine/Maze.cpp
+    src/engine/Player.cpp
+    src/engine/Raycaster.cpp
+    src/engine/Renderer.cpp
+    src/engine/Framebuffer.cpp
 )
-target_include_directories(engine PUBLIC src)
+target_include_directories(engine PUBLIC src/engine)
 
 # --- plataforma + ejecutable de escritorio ------------------------------------
 find_package(SDL2 REQUIRED)
 
 add_executable(raycaster
-    src/main.cpp
-    src/Platform.cpp
+    src/desktop/main.cpp
+    src/desktop/Platform.cpp
 )
 target_link_libraries(raycaster PRIVATE engine SDL2::SDL2)
 
@@ -40,7 +40,7 @@ configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 # Solo enlazan contra engine: si el test necesitara SDL, la separacion de capas
 # estaria mal hecha.
 enable_testing()
-add_executable(test_raycaster src/test_raycaster.cpp)
+add_executable(test_raycaster src/tests/test_raycaster.cpp)
 target_link_libraries(test_raycaster PRIVATE engine)
 # el build Release define NDEBUG, que borraria todos los assert y dejaria el
 # test pasando siempre. Se anula solo para este target.
