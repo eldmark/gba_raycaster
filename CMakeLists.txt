@@ -24,6 +24,15 @@ add_library(engine STATIC
 )
 target_include_directories(engine PUBLIC src/engine)
 
+# --- juego: mundo, entidades y reglas ----------------------------------------
+# Tampoco depende de la plataforma. Separada del motor porque el motor no debe
+# saber que existen enemigos ni pisos (seccion 7 del PROJECT.md).
+add_library(game STATIC
+    src/game/Level.cpp
+)
+target_include_directories(game PUBLIC src/game)
+target_link_libraries(game PUBLIC engine)
+
 # --- plataforma + ejecutable de escritorio ------------------------------------
 find_package(SDL2 REQUIRED)
 
@@ -31,7 +40,7 @@ add_executable(raycaster
     src/desktop/main.cpp
     src/desktop/Platform.cpp
 )
-target_link_libraries(raycaster PRIVATE engine SDL2::SDL2)
+target_link_libraries(raycaster PRIVATE game SDL2::SDL2)
 
 # el ejecutable busca maze.txt en el directorio de trabajo
 configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
@@ -40,11 +49,13 @@ configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 # Solo enlazan contra engine: si el test necesitara SDL, la separacion de capas
 # estaria mal hecha.
 enable_testing()
-add_executable(test_raycaster src/tests/test_raycaster.cpp)
-target_link_libraries(test_raycaster PRIVATE engine)
-# el build Release define NDEBUG, que borraria todos los assert y dejaria el
-# test pasando siempre. Se anula solo para este target.
-target_compile_options(test_raycaster PRIVATE -UNDEBUG)
-add_test(NAME raycaster_unit
-         COMMAND test_raycaster
-         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+# el build Release define NDEBUG, que borraria todos los assert y dejaria los
+# tests pasando siempre. Se anula solo para estos targets.
+foreach(suite raycaster level)
+    add_executable(test_${suite} src/tests/test_${suite}.cpp)
+    target_link_libraries(test_${suite} PRIVATE game)
+    target_compile_options(test_${suite} PRIVATE -UNDEBUG)
+    add_test(NAME ${suite}_unit
+             COMMAND test_${suite}
+             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+endforeach()

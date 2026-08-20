@@ -1,28 +1,46 @@
 #include "Maze.h"
 
 #include <fstream>
+#include <string>
+
+void Maze::reset(int w, int h, char fill) {
+    width_ = w;
+    height_ = h;
+    cells_.assign(size_t(w) * size_t(h), fill);
+}
+
+void Maze::set(int x, int y, char c) {
+    if (x < 0 || x >= width_ || y < 0 || y >= height_) return;
+    cells_[size_t(y) * size_t(width_) + size_t(x)] = c;
+}
+
+char Maze::at(int x, int y) const {
+    if (x < 0 || x >= width_ || y < 0 || y >= height_) return WALL;
+    return cells_[size_t(y) * size_t(width_) + size_t(x)];
+}
 
 bool Maze::load(const char* path) {
     std::ifstream file(path);
     if (!file) return false;
 
-    rows_.clear();
-    width_ = 0;
+    std::vector<std::string> rows;
+    size_t widest = 0;
     std::string line;
     while (std::getline(file, line)) {
         // el archivo puede venir con CRLF
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (static_cast<int>(line.size()) > width_) width_ = static_cast<int>(line.size());
-        rows_.push_back(line);
+        widest = std::max(widest, line.size());
+        rows.push_back(line);
     }
-    return !rows_.empty();
-}
+    if (rows.empty()) return false;
 
-char Maze::at(int x, int y) const {
-    if (y < 0 || y >= height() || x < 0) return '+';
-    const std::string& row = rows_[static_cast<size_t>(y)];
-    // las filas son irregulares (no se rellenan con espacios): pasado el final
-    // de ESTA fila es pared, no fuera del mapa
-    if (x >= static_cast<int>(row.size())) return '+';
-    return row[static_cast<size_t>(x)];
+    // las filas del archivo son irregulares; lo que falta al final de una fila
+    // corta es pared, no fuera del mapa
+    reset(int(widest), int(rows.size()), WALL);
+    for (size_t y = 0; y < rows.size(); ++y) {
+        for (size_t x = 0; x < rows[y].size(); ++x) {
+            set(int(x), int(y), rows[y][x]);
+        }
+    }
+    return true;
 }
