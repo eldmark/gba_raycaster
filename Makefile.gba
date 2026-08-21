@@ -26,13 +26,22 @@ INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(LIBGBA)/include
 
 # -mthumb: el ARM7TDMI de la GBA ejecuta Thumb casi todo el tiempo (fase 6 del
 # plan pasa el bucle caliente a ARM aparte, con -marm por archivo). -specs=
-# gba.specs trae el crt0, el linker script de cartucho (gba_cart.ld) y
-# --gc-sections; es la misma receta que usa cualquier proyecto de devkitARM.
+# src/gba/gba.specs es una copia local de gba.specs que apunta a
+# src/gba/gba_cart.ld en vez del gba_cart.ld de devkitARM: ese original manda
+# .bss/.data a IWRAM (32 KB) y no alcanza -Textures.h por si sola ya ocupa
+# 36.764 bytes en un static de assets() (fase 2 del plan, todavia no aterriza
+# en esta rama). La copia local manda esas mismas secciones a EWRAM (256 KB),
+# que sobra; ver el comentario en gba_cart.ld.
+#
+# _GNU_SOURCE: sin ella el math.h de newlib esconde M_PI bajo
+# __BSD_VISIBLE/__XSI_VISIBLE, que -std=c++17 (ISO estricto) desactiva.
+# Fixed.cpp usa M_PI y no es mio de tocar (Fase 1/2), asi que se arregla en el
+# toolchain en vez de en la fuente.
 CXXFLAGS := -mthumb -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
-            -specs=gba.specs -O2 -fno-exceptions -fno-rtti \
-            -ffunction-sections -fdata-sections \
+            -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti \
+            -ffunction-sections -fdata-sections -D_GNU_SOURCE \
             -std=c++17 -Wall -Wextra $(INCLUDES)
-LDFLAGS  := -mthumb -mthumb-interwork -specs=gba.specs -L$(LIBGBA)/lib -lgba
+LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -lgba
 
 .PHONY: all clean profile
 
