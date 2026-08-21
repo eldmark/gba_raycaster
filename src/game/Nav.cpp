@@ -28,7 +28,7 @@ void Nav::beginRebuild(const Maze& maze, int px, int py) {
     if (px < 0 || px >= width_ || py < 0 || py >= height_ || maze.isWall(px, py)) {
         // Nada alcanzable desde ahi: el campo queda vacio, pero igual hay que
         // intercambiar o step() seguiria leyendo el campo del piso anterior.
-        std::swap(dir_, dirBack_);
+        std::swap(dir_, dirBack_);  // dos punteros, no 4096 bytes
         return;
     }
 
@@ -65,7 +65,7 @@ void Nav::tick(int budget) {
     if (queueHead_ >= queueTail_) {
         // Cola vacia: el campo de fondo ya es el campo completo. Los
         // guardianes solo ven este intercambio, nunca un campo a medio hacer.
-        std::swap(dir_, dirBack_);
+        std::swap(dir_, dirBack_);  // dos punteros, no 4096 bytes
         building_ = false;
     }
 }

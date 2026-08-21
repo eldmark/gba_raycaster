@@ -45,8 +45,14 @@ private:
     // dir_ es lo que step() lee; dirBack_ es donde se construye el siguiente
     // campo. Los guardianes no ven un campo a medio hacer: solo ven el
     // intercambio ya terminado.
-    uint8_t dir_[kCells];
-    uint8_t dirBack_[kCells];
+    //
+    // Son punteros y no arrays a proposito: intercambiar dos arrays copia los
+    // 4096 bytes de cada uno, y eso devuelve al frame de convergencia el pico
+    // que esta clase existe para quitar. Con punteros el intercambio son dos
+    // registros. El almacenamiento real es fields_, que nadie toca directo.
+    uint8_t fields_[2][kCells];
+    uint8_t* dir_ = fields_[0];
+    uint8_t* dirBack_ = fields_[1];
 
     // Cola estatica de celdas por visitar, empaquetadas para no pagar la
     // division/modulo de desempaquetar x,y de un indice plano.
