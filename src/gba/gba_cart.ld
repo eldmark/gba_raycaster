@@ -214,7 +214,6 @@ SECTIONS
 		*(.gnu.linkonce.d*)
 		CONSTRUCTORS
 		. = ALIGN(4);
-		__data_end__ = ABSOLUTE(.);
 	} >ewram = 0xff
 
 	__preinit_lma = __data_lma + SIZEOF(.data);
@@ -248,6 +247,14 @@ SECTIONS
 
 	__jcr_lma = __fini_lma + SIZEOF(.fini_array);
 	.jcr        ALIGN(4)    : AT (__jcr_lma) { KEEP (*(.jcr)) } >ewram
+
+	/* __data_end__ tiene que cerrar DESPUES de .jcr, no al final de .data:
+	   crt0 copia de ROM a RAM el tramo __data_start__..__data_end__, y las
+	   tablas de constructores estaticos (.preinit_array/.init_array/
+	   .fini_array/.jcr) viven dentro de ese tramo. Cerrandolo antes, esas
+	   tablas se quedan sin copiar, __libc_init_array lee ceros y salta a la
+	   direccion 0: la consola se reinicia en bucle y nunca llega a main.  */
+	__data_end__ = ABSOLUTE(.);
 
 	__bss_lma = __jcr_lma + SIZEOF(.jcr);
 

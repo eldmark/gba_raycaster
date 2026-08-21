@@ -1,9 +1,16 @@
 #include "Maze.h"
 
 #include <cassert>
+
+// load() solo lo usa el cargador de mapas de prueba de escritorio. En GBA no
+// hay sistema de archivos, y peor: incluir <fstream> arrastra los locales de
+// libstdc++ al .init_array, que reservan memoria antes de main y tumban la
+// consola en un bucle de reinicio. Fuera de la ROM entera.
+#ifndef PLATFORM_GBA
 #include <fstream>
 #include <string>
 #include <vector>
+#endif
 
 void Maze::reset(int w, int h, char fill) {
     // Sin heap dinamico decente en GBA no hay reserva que valga: si el mapa no
@@ -21,6 +28,7 @@ void Maze::set(int x, int y, char c) {
     cells_[(y << 6) + x] = c;
 }
 
+#ifndef PLATFORM_GBA
 bool Maze::load(const char* path) {
     std::ifstream file(path);
     if (!file) return false;
@@ -50,3 +58,4 @@ bool Maze::load(const char* path) {
     }
     return true;
 }
+#endif  // PLATFORM_GBA
