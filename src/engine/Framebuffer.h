@@ -26,6 +26,9 @@ public:
     void shiftRow(int y, int amount);
 
     const uint8_t* pixels() const { return buf_; }
+    // Version escribible para los bucles calientes que ya recortaron sus
+    // limites y no necesitan pagar la comprobacion de setPixel por pixel.
+    uint8_t* pixels() { return buf_; }
     int width() const { return width_; }
     int height() const { return height_; }
 

@@ -10,6 +10,25 @@
 #include "Raycaster.h"
 #include "Textures.h"
 
+// Instrumental de la fase 4: reparte el coste de renderWorld entre el fondo,
+// el DDA y el bucle de texturas. Solo existe en la ROM del target "profile"
+// de la GBA; en escritorio GBA_PROFILE nunca esta definido y de aqui no queda
+// ni una instruccion.
+#ifdef GBA_PROFILE
+#include "../gba/Debug.h"
+extern "C" volatile uint32_t g_bgCycles;
+volatile uint32_t g_bgCycles = 0;
+extern "C" volatile uint32_t g_rayCycles;
+volatile uint32_t g_rayCycles = 0;
+extern "C" volatile uint32_t g_texCycles;
+volatile uint32_t g_texCycles = 0;
+#define PROF_BEGIN() const uint32_t profStart = gbadbg::cycles()
+#define PROF_ADD(acc) (acc) += gbadbg::cycles() - profStart
+#else
+#define PROF_BEGIN() ((void)0)
+#define PROF_ADD(acc) ((void)0)
+#endif
+
 namespace {
 
 // El Rust oscurecia con (1 - d/500) sobre distancias en pixeles de mundo.
@@ -72,6 +91,13 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
     const int half = h / 2;
     const Camera cam = cameraOf(player);
 
+#ifdef GBA_PROFILE
+    g_bgCycles = 0;
+    g_rayCycles = 0;
+    g_texCycles = 0;
+    { PROF_BEGIN();
+#endif
+
     // cielo y piso en bandas de paleta: degradan sin costar mas que 2*BG_LEVELS
     // fillRect por frame, y en GBA el degradado se puede pasar a HBlank DMA.
     for (int b = 0; b < BG_LEVELS; ++b) {
@@ -95,6 +121,10 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         fb.fillRect(0, y, w, 1, uint8_t(PAL_FLOOR_LINE + level));
     }
 
+#ifdef GBA_PROFILE
+    PROF_ADD(g_bgCycles); }
+#endif
+
     // cameraX barre [-1, 1) de a pasos iguales. Incremental para no pagar una
     // division por columna: la unica que queda es la de la altura.
     const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(w));
@@ -108,7 +138,13 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         fx rayX = cam.dirX + fxMul(cam.planeX, cameraX);
         fx rayY = cam.dirY + fxMul(cam.planeY, cameraX);
 
+#ifdef GBA_PROFILE
+        PROF_BEGIN();
+#endif
         Hit hit = castRay(maze, player.x, player.y, rayX, rayY);
+#ifdef GBA_PROFILE
+        PROF_ADD(g_rayCycles);
+#endif
 
         // altura proyectada; equivale al BLOCK_SIZE*HEIGHT/d del Rust porque
         // alla d estaba en pixeles de mundo y aca perpDist esta en celdas.
@@ -143,10 +179,28 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         fx texPos = fxMul(fxInt(top) - exactTop, step);
 
         const uint8_t* col = tex.px + texX;
-        for (int y = top; y < bottom; ++y, texPos += step) {
+#ifdef GBA_PROFILE
+        { PROF_BEGIN();
+#endif
+        // Puntero crudo en vez de setPixel. Este bucle es EL punto caliente
+        // del motor: en GBA costaba 2.398.152 ciclos de los 5.898.231 del
+        // frame entero, unos 100 por pixel. La mayoria no era el pixel, era
+        // la llamada: setPixel vive en otra unidad de traduccion, no se puede
+        // inlinear sin LTO, y ademas comprueba cuatro limites y multiplica
+        // y*width por cada uno de los ~24.000 pixeles de pared. Todo eso se
+        // ejecuta desde la ROM, que en la consola tiene esperas.
+        //
+        // Aqui los cuatro limites ya estan garantizados: top viene de un
+        // max(0,...), bottom de un min(h,...) y x es el indice del bucle de
+        // columnas. Avanzar el destino de fila en fila es una suma.
+        uint8_t* dst = fb.pixels() + size_t(top) * size_t(w) + size_t(x);
+        for (int y = top; y < bottom; ++y, texPos += step, dst += w) {
             int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
-            fb.setPixel(x, y, colBase[col[texY * TEX_SIZE]]);
+            *dst = colBase[col[texY * TEX_SIZE]];
         }
+#ifdef GBA_PROFILE
+        PROF_ADD(g_texCycles); }
+#endif
 
         if (x < MAX_SCREEN_W) g_wallDist[x] = hit.perpDist;
     }
