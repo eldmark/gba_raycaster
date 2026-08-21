@@ -1,9 +1,11 @@
 #include "Enemy.h"
+#include "Level.h"
 #include "Maze.h"
 #include "Nav.h"
 
 #include <cassert>
 #include <cstdio>
+#include <cstdint>
 
 namespace {
 
@@ -160,6 +162,67 @@ int main() {
             seen[e.frame & 1] = true;
         }
         assert(seen[0] && seen[1]);
+    }
+
+    // --- detector de guardianes atascados -------------------------------------
+    // Este proyecto ya tuvo el bug: guardianes empujando una esquina para
+    // siempre, 10 casos de 25 medidos. Lo arreglo el campo de flujo, pero las
+    // optimizaciones de IA del port (escalonar la linea de vision) vuelven a
+    // rondarlo, asi que hace falta una guarda permanente y no una anecdota.
+    //
+    // Invariante: un guardian DESPIERTO con ruta hasta el jugador no puede
+    // quedarse practicamente inmovil dos segundos seguidos.
+    {
+        constexpr int STUCK_FRAMES = 120;             // 2 s a 60 fps
+        const fx MIN_TRAVEL = fxFloat(0.35f);         // holgura sobre el ruido
+        int checked = 0;
+        int stuck = 0;
+
+        for (uint32_t seed = 1; seed <= 20; ++seed) {
+            Maze maze;
+            Level lvl = generateLevel(maze, seed * 7919u, 2);
+            Nav field;
+
+            // El jugador se queda en la entrada; el guardian sale de la sala
+            // mas lejana, que es la que obliga a rodear pasillos.
+            const fx px = lvl.startX, py = lvl.startY;
+            const RoomBounds& far = lvl.rooms[lvl.roomCount - 1];
+            Enemy e = at(fxInt(far.cx()) + FX_ONE / 2, fxInt(far.cy()) + FX_ONE / 2,
+                         tuningForFloor(2));
+            e.state = Enemy::State::Chase;   // despierto a proposito
+
+            field.rebuild(maze, fxFloorInt(px), fxFloorInt(py));
+            int sx, sy;
+            // Sin ruta no hay nada que exigirle: ese caso ya lo cubre el test
+            // de la sala sellada.
+            if (!field.step(fxFloorInt(e.x), fxFloorInt(e.y), sx, sy)) continue;
+            ++checked;
+
+            fx markX = e.x, markY = e.y;
+            for (int frame = 1; frame <= 600; ++frame) {
+                step(e, maze, field, px, py, tuningForFloor(2));
+                if (e.state == Enemy::State::Attack) break;  // llego: exito
+                if (frame % STUCK_FRAMES != 0) continue;
+
+                const fx dx = e.x - markX, dy = e.y - markY;
+                const fx moved2 = fxMul(dx, dx) + fxMul(dy, dy);
+                if (moved2 < fxMul(MIN_TRAVEL, MIN_TRAVEL)) {
+                    // stderr, no stdout: abort() no vacia el buffer de stdout
+                    // y el diagnostico se perderia justo cuando hace falta.
+                    std::fprintf(stderr, "  guardian atascado: seed %u en (%.2f, %.2f)\n",
+                                 seed * 7919u, cells(e.x), cells(e.y));
+                    ++stuck;
+                    break;
+                }
+                markX = e.x;
+                markY = e.y;
+            }
+        }
+
+        std::fprintf(stderr, "guardianes con ruta probados: %d, atascados: %d\n",
+                     checked, stuck);
+        assert(checked >= 10);  // el test tiene que estar probando algo
+        assert(stuck == 0);
     }
 
     std::printf("all tests passed\n");

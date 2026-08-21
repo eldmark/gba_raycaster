@@ -18,12 +18,12 @@ Hit castRay(const Maze& maze, fx posX, fx posY, fx dirX, fx dirY) {
     int mapX = fxFloorInt(posX);
     int mapY = fxFloorInt(posY);
 
-    // 2 de las 3 divisiones que cuesta cada columna. Si la GBA no llega a 60
-    // FPS, el primer recorte es una LUT de reciprocos indexada por el rayo.
+    // 2 de las 3 divisiones que costaba cada columna. Ahora son reciprocos de
+    // 32 bits: mismo resultado salvo 1 ulp, a un cuarto del precio.
     fx absX = fxAbs(dirX);
     fx absY = fxAbs(dirY);
-    fx deltaDistX = (absX < kMinDir) ? kHuge : fxDiv(FX_ONE, absX);
-    fx deltaDistY = (absY < kMinDir) ? kHuge : fxDiv(FX_ONE, absY);
+    fx deltaDistX = (absX < kMinDir) ? kHuge : fxRecip(absX);
+    fx deltaDistY = (absY < kMinDir) ? kHuge : fxRecip(absY);
 
     int stepX, stepY;
     fx sideDistX, sideDistY;

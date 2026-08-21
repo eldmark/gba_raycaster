@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <queue>
+#include <string>
 #include <vector>
 
 namespace {
@@ -78,6 +80,36 @@ constexpr double KITE_DIST = 3.5;
 // solo gira y dispara, sin acercarse: es lo que hace un jugador que tirotea a
 // distancia en vez de meterse en el cuerpo a cuerpo. Con retreat se aleja
 // mientras sigue apuntando.
+// Version que apunta a un punto exacto del mundo, no al centro de una celda.
+// Importa: contra un enemigo, apuntar al centro de su celda se desvia hasta 0.7
+// celdas de donde esta de verdad, y a media distancia esa desviacion supera el
+// radio de impacto del hitscan. El piloto disparaba y fallaba indefinidamente.
+bool steerTowardPos(Game& game, double tx, double ty, bool advance, bool shoot,
+                    bool retreat) {
+    const Player& p = game.player();
+    const double px = double(p.x) / FX_ONE, py = double(p.y) / FX_ONE;
+    if (std::hypot(px - tx, py - ty) < 0.25) {
+        Input in;
+        in.fire = shoot;
+        game.update(in, DT);
+        return false;
+    }
+
+    const double want = std::atan2(ty - py, tx - px);
+    const angle target = angle(int32_t(want * (65536.0 / (2.0 * M_PI))) & 0xFFFF);
+    const int16_t diff = int16_t(target - p.a);
+
+    Input in;
+    if (diff > 900) in.right = true;
+    else if (diff < -900) in.left = true;
+    if (advance && diff > -4000 && diff < 4000) in.fwd = true;
+    if (retreat) in.back = true;
+    in.fire = shoot;
+
+    game.update(in, DT);
+    return true;
+}
+
 bool steerToward(Game& game, int cx, int cy, bool advance = true,
                  bool shoot = true, bool retreat = false) {
     const Player& p = game.player();
@@ -163,6 +195,10 @@ bool driveTo(Game& game, int tx, int ty) {
 
 // Lleva al jugador hasta la salida del piso actual. Devuelve false si se
 // atasca, que significa que el piso no se puede terminar.
+// Motivo del ultimo fallo de walkToExit. Solo lo usa el barrido, para poder
+// distinguir "el piso es imposible" de "el piloto no supo".
+const char* g_stallReason = "";
+
 bool walkToExit(Game& game) {
     // La ruta entre archivos se muestra durante un instante; el piloto espera
     // la pantalla igual que lo haria un jugador antes de trazar la nueva ruta.
@@ -171,14 +207,14 @@ bool walkToExit(Game& game) {
         Input idle;
         game.update(idle, DT);
     }
-    if (game.state() != Game::State::Playing) return false;
+    if (game.state() != Game::State::Playing) { g_stallReason = "no jugando"; return false; }
 
     int ex, ey;
-    if (!findExit(game.maze(), ex, ey)) return false;
+    if (!findExit(game.maze(), ex, ey)) { g_stallReason = "sin salida"; return false; }
 
     auto path = bfsPath(game.maze(), fxFloorInt(game.player().x),
                         fxFloorInt(game.player().y), ex, ey);
-    if (path.empty()) return false;
+    if (path.empty()) { g_stallReason = "sin ruta a la salida"; return false; }
 
     const int startFloor = game.floor();
     size_t waypoint = 1;  // [0] es la celda donde ya esta
@@ -189,12 +225,31 @@ bool walkToExit(Game& game) {
         if (game.floor() != startFloor || game.state() != Game::State::Playing) {
             return true;
         }
-        if (waypoint >= path.size()) return false;
-
-        // Si hay un guardian cerca se le apunta y se le dispara; si no, se
-        // sigue la ruta. Es lo minimo que hace un jugador real, y sin ello la
-        // run no se puede terminar.
+        // Los enemigos se atienden ANTES de mirar si queda ruta. Al reves, el
+        // piloto llegaba a la sala de extraccion del ultimo archivo, se le
+        // acababa la ruta con el nucleo centinela bloqueando el protocolo, y
+        // se rendia con el jefe a una celda en vez de dispararle. Un jugador
+        // real pelea; el piloto tiene que hacer lo mismo o mide otra cosa.
         int target = nearestEnemy(game, 8.0);
+        if (target < 0 && waypoint >= path.size()) {
+            g_stallReason = "ruta agotada sin enemigo a la vista";
+            return false;
+        }
+
+        // Re-trazar si el combate lo dejo lejos del waypoint que perseguia. La
+        // ruta se calculaba UNA vez al entrar al piso: despues de retroceder
+        // disparando, el piloto quedaba fuera de ella y seguia apuntando a una
+        // casilla que ya no le tocaba, dando vueltas hasta agotar el limite de
+        // frames con el archivo practicamente ganado.
+        if (target < 0 &&
+            cellDist(game.player(), path[waypoint].first, path[waypoint].second) > 2.5) {
+            auto fresh = bfsPath(game.maze(), fxFloorInt(game.player().x),
+                                 fxFloorInt(game.player().y), ex, ey);
+            if (!fresh.empty()) {
+                path = fresh;
+                waypoint = 1;
+            }
+        }
         if (target >= 0) {
             const Enemy& e = game.enemy(target);
             double dx = double(e.x - game.player().x) / FX_ONE;
@@ -202,8 +257,8 @@ bool walkToExit(Game& game) {
             // acercarse solo si esta lejos; dentro de 3 celdas se dispara
             // quieto, que es como se juega de verdad
             const double d = std::hypot(dx, dy);
-            steerToward(game, fxFloorInt(e.x), fxFloorInt(e.y), d > KITE_DIST,
-                        true, d < KITE_DIST - 1.0);
+            steerTowardPos(game, double(e.x) / FX_ONE, double(e.y) / FX_ONE,
+                           d > KITE_DIST, true, d < KITE_DIST - 1.0);
             continue;
         }
 
@@ -211,12 +266,58 @@ bool walkToExit(Game& game) {
             ++waypoint;
         }
     }
+    g_stallReason = "se agotaron los 20000 frames";
     return false;
 }
 
 }  // namespace
 
-int main() {
+// Barrido de muchas seeds: NO es un test, es un informe. Tarda demasiado para
+// ctest, pero es la puerta de entrada obligatoria a cualquier cambio de IA
+// (seccion "Fase 0" de docs/port.md). Reutiliza el mismo piloto que el test
+// para no tener dos definiciones de "jugar bien" que puedan divergir.
+//
+//   ./test_game --sweep [n]
+int sweep(int seeds) {
+    int cleared = 0, died = 0, stalled = 0;
+    long totalKills = 0;
+
+    for (int i = 0; i < seeds; ++i) {
+        Game g;
+        g.newRun(uint32_t(i + 1) * 2654435761u);
+        bool ok = true;
+        for (int floor = 1; floor <= Game::FINAL_FLOOR && ok; ++floor) {
+            ok = walkToExit(g);
+        }
+        totalKills += g.kills();
+        if (g.state() == Game::State::Cleared) {
+            ++cleared;
+        } else if (g.state() == Game::State::Dead) {
+            ++died;
+        } else {
+            ++stalled;
+            std::printf("  ATASCADA seed %u archivo %d hp %d en (%.1f,%.1f) jefe=%d: %s\n",
+                        g.seed(), g.floor(), g.hp(),
+                        double(g.player().x) / FX_ONE, double(g.player().y) / FX_ONE,
+                        g.bossAlive(), g_stallReason);
+        }
+    }
+
+    std::printf("barrido de %d seeds\n", seeds);
+    std::printf("  completadas : %d (%.0f%%)\n", cleared, 100.0 * cleared / seeds);
+    std::printf("  muertes     : %d\n", died);
+    std::printf("  atascadas   : %d\n", stalled);
+    std::printf("  bajas/run   : %.1f\n", double(totalKills) / seeds);
+    // Solo se falla si el piloto se ATASCA: morir es un resultado legitimo de
+    // un juego que puede perderse, quedarse clavado no lo es.
+    return stalled == 0 ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--sweep") {
+        return sweep(argc > 2 ? std::atoi(argv[2]) : 60);
+    }
+
     // Una run arranca en el piso 1, con la vida llena y viva.
     Game game;
     game.newRun(583291u);
