@@ -129,7 +129,12 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
 
         const int texId = texIndex(hit.impact);
         const Texture& tex = textures()[texId];
-        const uint8_t base = wallBase(texId, shadeLevel(hit.perpDist, hit.side));
+        // Tabla de 4 entradas, una por color del texel, calculada una vez por
+        // columna: el bucle interno de abajo solo indexa, no multiplica ni
+        // busca la rampa deduplicada por pixel (ver wallColumnBase en
+        // Textures.h).
+        uint8_t colBase[TEX_COLORS];
+        wallColumnBase(texId, shadeLevel(hit.perpDist, hit.side), colBase);
 
         // avance en la textura por pixel de pantalla. texPos arranca desde
         // exactTop y no desde top, asi la textura no "resbala" cuando la pared
@@ -140,7 +145,7 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         const uint8_t* col = tex.px + texX;
         for (int y = top; y < bottom; ++y, texPos += step) {
             int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
-            fb.setPixel(x, y, uint8_t(base + col[texY * TEX_SIZE] * SHADE_LEVELS));
+            fb.setPixel(x, y, colBase[col[texY * TEX_SIZE]]);
         }
 
         if (x < MAX_SCREEN_W) g_wallDist[x] = hit.perpDist;
