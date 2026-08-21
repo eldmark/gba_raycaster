@@ -19,7 +19,9 @@ constexpr int HEIGHT = 160;
 // salida correcta para esta fase es renderizar aqui y que Platform::present
 // vuelque a VRAM con escrituras de 16 bits emparejadas; hacerlo mas barato
 // (DMA, pares nativos en el propio bucle de render) es la fase 4.
-static uint8_t g_fbBuf[WIDTH * HEIGHT];
+// alignas(4): present() lo vuelca con DMA de 32 bits, y el DMA ignora los dos
+// bits bajos de la direccion. Un buffer desalineado se copiaria corrido.
+alignas(4) static uint8_t g_fbBuf[WIDTH * HEIGHT];
 
 // Todo lo que sigue -- contadores, overlay en pantalla y volcado al log de
 // mGBA -- es el instrumental de medida de la fase 3, y solo entra en la ROM
@@ -49,6 +51,39 @@ extern "C" volatile uint32_t g_presentCycles;
 volatile uint32_t g_presentCycles = 0;   // solo el volcado EWRAM->VRAM + vblank
 
 #endif  // GBA_PROFILE
+
+// Cada etapa del frame por separado. Sin esto solo se sabe que un frame cuesta
+// 6.460.017 ciclos, que no dice cual de las seis etapas hay que arreglar. Fuera
+// del target "profile" la macro se evapora y queda la llamada pelada.
+#ifdef GBA_PROFILE
+#define PROF_DECL(name) \
+    extern "C" volatile uint32_t g_##name##Cycles; \
+    volatile uint32_t g_##name##Cycles = 0
+PROF_DECL(world);
+PROF_DECL(sprites);
+PROF_DECL(minimap);
+PROF_DECL(hud);
+PROF_DECL(screen);
+// Los cuenta Platform.cpp, que es quien puede separar el volcado a VRAM de la
+// espera al vblank: uno se puede optimizar y el otro no.
+extern "C" volatile uint32_t g_copyCycles;
+extern "C" volatile uint32_t g_vblankCycles;
+// Los cuenta Renderer.cpp: fondo, DDA y bucle de texturas por separado.
+extern "C" volatile uint32_t g_bgCycles;
+extern "C" volatile uint32_t g_rayCycles;
+extern "C" volatile uint32_t g_texCycles;
+#define PROF_MARK(name, ...)                              \
+    do {                                                  \
+        const uint32_t profStart = gbadbg::cycles();      \
+        __VA_ARGS__;                                      \
+        g_##name##Cycles = gbadbg::cycles() - profStart;  \
+    } while (0)
+#else
+#define PROF_MARK(name, ...) \
+    do {                     \
+        __VA_ARGS__;         \
+    } while (0)
+#endif
 
 int main() {
     Platform platform;
@@ -92,20 +127,24 @@ int main() {
         game.update(input, dt);
 
         if (game.state() == Game::State::Playing) {
-            renderWorld(fb, game.maze(), game.player());
+            PROF_MARK(world, renderWorld(fb, game.maze(), game.player()));
 
             SpriteInstance sprites[Game::MAX_WORLD_SPRITES];
             int spriteCount = game.buildSprites(sprites, Game::MAX_ENEMIES);
             spriteCount += game.buildItemSprites(sprites + spriteCount,
                                                  Game::MAX_WORLD_SPRITES - spriteCount);
-            renderSprites(fb, game.player(), sprites, spriteCount);
+            PROF_MARK(sprites, renderSprites(fb, game.player(), sprites, spriteCount));
 
-            renderMinimap(fb, game.maze(), game.player());
-            renderMinimapEntities(fb, game.maze(), game.player(), sprites, spriteCount);
-            drawHud(fb, game);
-            renderConnectionLoss(fb, game.connectionLoss(), game.glitchPhase());
+            PROF_MARK(minimap, {
+                renderMinimap(fb, game.maze(), game.player());
+                renderMinimapEntities(fb, game.maze(), game.player(), sprites, spriteCount);
+            });
+            PROF_MARK(hud, {
+                drawHud(fb, game);
+                renderConnectionLoss(fb, game.connectionLoss(), game.glitchPhase());
+            });
         } else {
-            drawScreen(fb, game);
+            PROF_MARK(screen, drawScreen(fb, game));
         }
 
 #ifdef GBA_PROFILE
@@ -141,6 +180,12 @@ int main() {
                           static_cast<unsigned long>(frameCycles),
                           frameCycles ? 16780000.0 / double(frameCycles) : 0.0);
             gbadbg::log(msg);
+            char tb[96];
+            std::snprintf(tb, sizeof(tb), "  TITLE screen=%lu copy=%lu vblank=%lu",
+                          static_cast<unsigned long>(g_screenCycles),
+                          static_cast<unsigned long>(g_copyCycles),
+                          static_cast<unsigned long>(g_vblankCycles));
+            gbadbg::log(tb);
             loggedTitle = true;
         }
         if (game.state() == Game::State::Playing) {
@@ -164,6 +209,22 @@ int main() {
                           static_cast<unsigned long>(frameCycles),
                           frameCycles ? 16780000.0 / double(frameCycles) : 0.0);
             gbadbg::log(msg);
+            char pb[128];
+            std::snprintf(pb, sizeof(pb),
+                          "  PLAY world=%lu spr=%lu mini=%lu hud=%lu copy=%lu vblank=%lu",
+                          static_cast<unsigned long>(g_worldCycles),
+                          static_cast<unsigned long>(g_spritesCycles),
+                          static_cast<unsigned long>(g_minimapCycles),
+                          static_cast<unsigned long>(g_hudCycles),
+                          static_cast<unsigned long>(g_copyCycles),
+                          static_cast<unsigned long>(g_vblankCycles));
+            gbadbg::log(pb);
+            char wb[96];
+            std::snprintf(wb, sizeof(wb), "  WORLD bg=%lu ray=%lu tex=%lu",
+                          static_cast<unsigned long>(g_bgCycles),
+                          static_cast<unsigned long>(g_rayCycles),
+                          static_cast<unsigned long>(g_texCycles));
+            gbadbg::log(wb);
             loggedPlaying = true;
         }
 #endif  // GBA_PROFILE

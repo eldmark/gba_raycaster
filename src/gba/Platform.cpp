@@ -5,6 +5,7 @@
 #include "Textures.h"
 
 #include <gba_base.h>
+#include <gba_dma.h>
 #include <gba_input.h>
 #include <gba_video.h>
 
@@ -69,6 +70,16 @@ bool Platform::pollInput(Input& input) {
     return true;
 }
 
+#ifdef GBA_PROFILE
+// Desglose de present(): copiar EWRAM->VRAM y esperar al vblank son dos costes
+// distintos y solo uno se puede optimizar. Medirlos juntos escondia cual era
+// cual. Nombre plano y extern "C" para poder leerlos tambien desde gdb.
+extern "C" volatile uint32_t g_copyCycles;
+volatile uint32_t g_copyCycles = 0;
+extern "C" volatile uint32_t g_vblankCycles;
+volatile uint32_t g_vblankCycles = 0;
+#endif
+
 void Platform::present(const Framebuffer& fb) {
     // Se escribe en la pagina que NO se esta mostrando: eso es lo que hace
     // seguro dibujar mientras el LCD sigue barriendo la otra sin rasgar nada.
@@ -76,11 +87,24 @@ void Platform::present(const Framebuffer& fb) {
     const uint8_t* src = fb.pixels();
     const int n = fb.width() * fb.height();
 
-    // Pares de columnas: cada strh escribe dos pixeles de una vez, que es la
-    // unica escritura que el modo 4 acepta sin duplicar el byte.
-    for (int i = 0; i < n; i += 2) {
-        back[i >> 1] = uint16_t(src[i]) | (uint16_t(src[i + 1]) << 8);
-    }
+#ifdef GBA_PROFILE
+    const uint32_t beforeCopy = gbadbg::cycles();
+#endif
+
+    // DMA3 en palabras de 32 bits. Antes esto era un bucle de la CPU que leia
+    // dos bytes de EWRAM y los juntaba en un strh, y costaba 902.501 ciclos:
+    // el bus de EWRAM es de 16 bits, asi que cada uno de los 38.400 bytes se
+    // pagaba a precio de acceso suelto. El DMA lee de a 32 bits y no ejecuta
+    // instrucciones por el camino.
+    //
+    // Sigue sin haber ninguna escritura de 8 bits, que es lo que el modo 4
+    // rechaza: el DMA transfiere palabras enteras.
+    DMA3COPY(src, back, DMA_ENABLE | DMA32 | uint32_t(n / 4));
+
+#ifdef GBA_PROFILE
+    g_copyCycles = gbadbg::cycles() - beforeCopy;
+    const uint32_t beforeVblank = gbadbg::cycles();
+#endif
 
     // Voltear la pagina solo dentro del vblank: si el bit 4 de DISPCNT cambia
     // a mitad de barrido, la mitad superior de la pantalla queda de un frame
@@ -99,6 +123,10 @@ void Platform::present(const Framebuffer& fb) {
     // perdiendo un frame de pantalla en vez de ganar velocidad.
     while (REG_VCOUNT >= 160) {
     }
+
+#ifdef GBA_PROFILE
+    g_vblankCycles = gbadbg::cycles() - beforeVblank;
+#endif
 }
 
 void Platform::setTitle(const char* /*title*/) {
