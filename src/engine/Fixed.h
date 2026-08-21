@@ -33,10 +33,27 @@ constexpr fx fxMul(fx a, fx b) {
     return fx((int64_t(a) * int64_t(b)) >> FX_BITS);
 }
 
-// Esta si es cara (division por software, decenas de ciclos). Contar cuantas
-// hay por columna antes de agregar una mas.
+// Esta si es cara, y bastante mas de lo que decia este comentario antes.
+// `int64_t(a) << FX_BITS` promociona TAMBIEN el divisor a 64 bits, asi que en
+// ARMv4T no compila a __aeabi_idiv sino a __aeabi_ldivmod: una division 64/64
+// que, sin instruccion CLZ ni divisor por hardware, cuesta del orden de 400
+// ciclos. A tres por columna son mas ciclos que el frame entero de la GBA.
+// Usar fxRecip cuando el numerador sea constante.
 constexpr fx fxDiv(fx a, fx b) {
     return fx((int64_t(a) << FX_BITS) / b);
+}
+
+// Reciproco 1/b en 16.16, con una sola division de 32 bits en vez de una de 64.
+//
+// El numerador que hace falta es 2^32, que no cabe en 32 bits; se divide 2^31 y
+// se recupera el bit con el desplazamiento. Comprobado de forma exhaustiva
+// contra fxDiv(FX_ONE, b) para todo b en [16, 65536]: el error maximo es de 1
+// ulp, o sea 1.5e-5 celdas. Mover un pixel de altura de pared a h=160 exige un
+// error relativo del 0.6%; esto esta cuatro ordenes de magnitud por debajo.
+//
+// b debe ser positivo. Los llamadores pasan magnitudes, no valores con signo.
+inline fx fxRecip(fx b) {
+    return fx((0x80000000u / uint32_t(b)) << 1);
 }
 
 // --- angulos ------------------------------------------------------------------

@@ -27,7 +27,7 @@ bool collides(const Maze& maze, fx x, fx y) {
 
 void updatePlayer(Player& player, const Input& input, const Maze& maze, fx dt) {
     // dt ya es 16.16, asi que el >> FX_BITS deja el giro en unidades de angulo
-    angle turn = angle((ROTATION_SPEED * int64_t(dt)) >> FX_BITS);
+    angle turn = angle(fxMul(ROTATION_SPEED, dt));
     if (input.left) player.a -= turn;
     if (input.right) player.a += turn;
     // El giro analogico se suma encima y NO se escala por dt: el raton ya da

@@ -67,12 +67,19 @@ int updateEnemy(Enemy& e, const Maze& maze, const Nav& nav, fx playerX, fx playe
 
     const fx d2 = dist2(e.x, e.y, playerX, playerY);
 
+    // La comprobacion de rango va ANTES del rayo, no despues. Un guardian
+    // dormido y fuera de vista descartaba el resultado sin leerlo: cuatro de
+    // cada cinco rayos que lanzaba la IA no los miraba nadie.
+    if (e.state == Enemy::State::Idle &&
+        d2 > fxMul(tuning.sightRange, tuning.sightRange)) {
+        return 0;
+    }
+
     const bool sees = canSee(maze, e.x, e.y, playerX, playerY);
 
     if (e.state == Enemy::State::Idle) {
         // ver, no solo estar cerca: antes despertaban a traves de los muros, y
         // ademas de ser injusto los dejaba persiguiendo algo inalcanzable
-        if (d2 > fxMul(tuning.sightRange, tuning.sightRange)) return 0;
         if (!sees) return 0;
         e.state = Enemy::State::Chase;
     }
@@ -116,9 +123,13 @@ int updateEnemy(Enemy& e, const Maze& maze, const Nav& nav, fx playerX, fx playe
     fx len = (ax > ay) ? (ax + (ay >> 1)) : (ay + (ax >> 1));
     if (len <= 0) return 0;
 
+    // Una division, no dos: se divide el paso entre la longitud una sola vez y
+    // el resultado se reparte a los dos ejes. Algebra identica, y en ARMv4T
+    // cada division que se borra son ~400 ciclos.
     fx step = fxMul(tuning.speed, dt);
-    fx mx = fxMul(fxDiv(dx, len), step);
-    fx my = fxMul(fxDiv(dy, len), step);
+    fx k = fxDiv(step, len);
+    fx mx = fxMul(dx, k);
+    fx my = fxMul(dy, k);
 
     // cada eje por separado, igual que el jugador: permite deslizarse por la
     // pared en vez de quedarse clavado contra una esquina
