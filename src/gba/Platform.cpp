@@ -38,6 +38,16 @@ bool Platform::init(int w, int h, const char* /*title*/) {
     width_ = w;
     height_ = h;
 
+    // Esperas del bus del cartucho y prefetch. Al arrancar, la consola deja
+    // WAITCNT en 0: 4+2 ciclos de espera por acceso a la ROM y sin buffer de
+    // prefetch. Como TODO el codigo se ejecuta desde la ROM, eso es un impuesto
+    // sobre cada instruccion del motor.
+    //
+    // 0x4317: WS0 en 3/1, SRAM en 3, y el bit 14 enciende el prefetch, que va
+    // adelantando instrucciones mientras la CPU no usa el bus. Son los valores
+    // que aceptan los cartuchos comerciales; libgba no lo toca.
+    *reinterpret_cast<volatile uint16_t*>(0x4000204) = 0x4317;
+
     REG_DISPCNT = MODE_4 | BG2_ON;
 
     // La paleta la construye Textures.h en ARGB de 8 bits por canal; la GBA
