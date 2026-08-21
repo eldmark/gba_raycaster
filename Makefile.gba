@@ -1,0 +1,69 @@
+# Build de la GBA. Separado a proposito del CMakeLists.txt de escritorio: la
+# fase 3 del port (docs/port.md) pide un build aparte con devkitARM, no tocar
+# el de SDL. Este Makefile compila engine y game TAL CUAL -eso es la prueba
+# de que la separacion de capas del PROJECT.md (seccion 7) sirvio para algo-
+# y anade solo src/gba como capa de plataforma.
+
+DEVKITARM  ?= /opt/devkitpro/devkitARM
+LIBGBA     ?= /opt/devkitpro/libgba
+TOOLS      ?= /opt/devkitpro/tools/bin
+
+PREFIX  := $(DEVKITARM)/bin/arm-none-eabi-
+CXX     := $(PREFIX)g++
+OBJCOPY := $(PREFIX)objcopy
+GBAFIX  := $(TOOLS)/gbafix
+
+BUILD := build-gba
+TARGET := violethat
+
+ENGINE_SRC := $(wildcard src/engine/*.cpp)
+GAME_SRC   := $(wildcard src/game/*.cpp)
+GBA_SRC    := $(wildcard src/gba/*.cpp)
+SRC        := $(ENGINE_SRC) $(GAME_SRC) $(GBA_SRC)
+OBJ        := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC))
+
+INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(LIBGBA)/include
+
+# -mthumb: el ARM7TDMI de la GBA ejecuta Thumb casi todo el tiempo (fase 6 del
+# plan pasa el bucle caliente a ARM aparte, con -marm por archivo). -specs=
+# src/gba/gba.specs es una copia local de gba.specs que apunta a
+# src/gba/gba_cart.ld en vez del gba_cart.ld de devkitARM: ese original manda
+# .bss/.data a IWRAM (32 KB) y no alcanza -Textures.h por si sola ya ocupa
+# 36.764 bytes en un static de assets() (fase 2 del plan, todavia no aterriza
+# en esta rama). La copia local manda esas mismas secciones a EWRAM (256 KB),
+# que sobra; ver el comentario en gba_cart.ld.
+#
+# _GNU_SOURCE: sin ella el math.h de newlib esconde M_PI bajo
+# __BSD_VISIBLE/__XSI_VISIBLE, que -std=c++17 (ISO estricto) desactiva.
+# Fixed.cpp usa M_PI y no es mio de tocar (Fase 1/2), asi que se arregla en el
+# toolchain en vez de en la fuente.
+CXXFLAGS := -mthumb -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
+            -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti \
+            -ffunction-sections -fdata-sections -D_GNU_SOURCE \
+            -std=c++17 -Wall -Wextra $(INCLUDES)
+LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -lgba
+
+.PHONY: all clean profile
+
+all: $(TARGET).gba
+
+# Target de medicion (fase 3): compila con GBA_AUTOSTART, que sintetiza dos
+# pulsos de START para atravesar titulo/reglas sin mando -no hay xdotool ni
+# lua en este entorno para automatizar mgba-sdl headless. El .gba normal
+# (target "all") no lleva esta bandera y solo responde al KEYPAD real.
+profile: CXXFLAGS += -DGBA_AUTOSTART
+profile: clean $(TARGET).gba
+
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(TARGET).elf: $(OBJ)
+	$(CXX) $(OBJ) $(LDFLAGS) -o $@
+
+$(TARGET).gba: $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+	$(GBAFIX) $@
+
+clean:
+	rm -rf $(BUILD) $(TARGET).elf $(TARGET).gba

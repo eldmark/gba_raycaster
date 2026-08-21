@@ -7,3 +7,7 @@ install-devkitpro-pacman
 /docs
 # Audio horneado: se genera desde public/audio con tools/audio_bake.py
 tools/audio_baked/
+build-gba/
+/violethat.elf
+/violethat.gba
+/violethat.sav
