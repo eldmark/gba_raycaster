@@ -86,7 +86,7 @@ configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 enable_testing()
 # el build Release define NDEBUG, que borraria todos los assert y dejaria los
 # tests pasando siempre. Se anula solo para estos targets.
-foreach(suite raycaster level game enemy screens)
+foreach(suite raycaster level game enemy screens frames)
     add_executable(test_${suite} src/tests/test_${suite}.cpp)
     target_link_libraries(test_${suite} PRIVATE game)
     target_compile_options(test_${suite} PRIVATE -UNDEBUG)
@@ -94,6 +94,12 @@ foreach(suite raycaster level game enemy screens)
              COMMAND test_${suite}
              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endforeach()
+
+# La referencia de frames dorados vive en el repositorio, no en el directorio de
+# build: es un dato versionado, y su diff es la prueba de que una optimizacion
+# del port no cambio la imagen.
+target_compile_definitions(test_frames PRIVATE
+    FRAMES_REF="${CMAKE_CURRENT_SOURCE_DIR}/src/tests/frames.ref")
 
 # Prueba de equivalencia RGB del dedup de rampas de pared (ver el comentario
 # en tools/verify_wall_dedup.cpp): no es un test dorado de framebuffer, es la
