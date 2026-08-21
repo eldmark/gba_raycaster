@@ -18,10 +18,17 @@ Los seis materiales de pared y todos los sprites, tal como los construye
 
 ## Estado
 
-Corre en Linux. El port a Game Boy Advance es el siguiente paso: el motor ya
-está preparado para él, no queda aritmética de coma flotante en el camino de
-render y el framebuffer usa el mismo formato indexado de 8 bits que el modo 4
-de la consola.
+Corre en Linux y **arranca en Game Boy Advance**: `make -f Makefile.gba` deja un
+cartucho de 73 KB que se carga en un emulador o en una flashcard. No queda
+aritmética de coma flotante en el camino de render y el framebuffer usa el mismo
+formato indexado de 8 bits que el modo 4 de la consola.
+
+Lo que le falta a esa ROM está medido, no supuesto. Un frame jugando cuesta
+6.460.017 ciclos contra los 559.333 que caben en 1/30 de segundo: **va 11,6
+veces por encima del presupuesto**, o sea unos 2,6 fps. El volcado del
+framebuffer a VRAM se lleva 965.995 ciclos él solo, casi el doble del
+presupuesto entero de un frame. Y el sonido todavía no está enganchado: la
+consola arranca muda. Corregir las dos cosas es el trabajo que queda.
 
 MVP (sección 29 del documento de diseño):
 
@@ -44,7 +51,7 @@ MVP (sección 29 del documento de diseño):
 - [x] Jefe final — NUCLEO CENTINELA
 - [x] Música y efectos de sonido
 - [x] Ratón, mando y selección de archivo
-- [ ] Port a Game Boy Advance
+- [x] Port a Game Boy Advance — la ROM arranca y se juega, a 2,6 fps y sin sonido
 
 ## Compilar y jugar
 
@@ -64,6 +71,36 @@ que sirve para reproducir un fallo o repetir una partida concreta:
 ```
 
 Sin argumento, cada partida usa una seed nueva y la imprime al arrancar.
+
+## Compilar el cartucho de Game Boy Advance
+
+Hace falta [devkitARM](https://devkitpro.org/wiki/Getting_Started) con `libgba`.
+El build de consola no usa CMake: tiene su propio makefile porque el compilador,
+el linker script y las banderas son otros.
+
+```sh
+make -f Makefile.gba
+```
+
+Deja `violethat.gba` en la raíz, listo para un emulador o para una flashcard.
+Para jugarlo en el PC:
+
+```sh
+mgba-qt violethat.gba      # o cualquier emulador: VBA-M, no$gba, mGBA
+```
+
+En hardware real hace falta una flashcard (EverDrive GBA, EZ-Flash): se copia
+el `.gba` a la tarjeta SD y se arranca desde el menú. La ROM son 73 KB y no usa
+memoria de guardado, así que no hay `.sav` que preparar.
+
+Los controles de consola son el D-PAD para andar y girar, **A** para disparar y
+**START** para continuar y para empezar una run nueva.
+
+`make -f Makefile.gba profile` compila una segunda ROM, distinta: pulsa START
+sola al arrancar y pinta en pantalla el coste en ciclos del frame de título y
+del frame jugando, además de volcarlo al log de depuración de mGBA
+(`mgba -l 255`). Sirve para medir, no para jugar; el cartucho normal no lleva
+nada de eso.
 
 ## Controles
 

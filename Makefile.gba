@@ -51,7 +51,7 @@ all: $(TARGET).gba
 # pulsos de START para atravesar titulo/reglas sin mando -no hay xdotool ni
 # lua en este entorno para automatizar mgba-sdl headless. El .gba normal
 # (target "all") no lleva esta bandera y solo responde al KEYPAD real.
-profile: CXXFLAGS += -DGBA_AUTOSTART
+profile: CXXFLAGS += -DGBA_AUTOSTART -DGBA_PROFILE
 profile: clean $(TARGET).gba
 
 $(BUILD)/%.o: %.cpp

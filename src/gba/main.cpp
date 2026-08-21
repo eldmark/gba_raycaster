@@ -21,6 +21,12 @@ constexpr int HEIGHT = 160;
 // (DMA, pares nativos en el propio bucle de render) es la fase 4.
 static uint8_t g_fbBuf[WIDTH * HEIGHT];
 
+// Todo lo que sigue -- contadores, overlay en pantalla y volcado al log de
+// mGBA -- es el instrumental de medida de la fase 3, y solo entra en la ROM
+// del target "profile" (-DGBA_PROFILE). El cartucho que se entrega no lleva
+// nada de esto: la medida pintaba dos numeros encima de cada pantalla.
+#ifdef GBA_PROFILE
+
 // Cuantos frames medir al arrancar antes de dejar de imprimir. La pantalla de
 // titulo y una partida ya en curso cuestan distinto (mas o menos sprites,
 // HUD, minimapa), asi que se registran los dos por separado.
@@ -42,6 +48,8 @@ volatile uint32_t g_playingCycles = 0;
 extern "C" volatile uint32_t g_presentCycles;
 volatile uint32_t g_presentCycles = 0;   // solo el volcado EWRAM->VRAM + vblank
 
+#endif  // GBA_PROFILE
+
 int main() {
     Platform platform;
     platform.init(WIDTH, HEIGHT, "VIOLET HAT");
@@ -56,10 +64,14 @@ int main() {
     Input input;
     fx dt = FX_ONE / 60;
 
+#if defined(GBA_PROFILE) || defined(GBA_AUTOSTART)
     int frame = 0;
+#endif
+#ifdef GBA_PROFILE
     int playingFrames = 0;  // frames consecutivos en State::Playing
     bool loggedTitle = false;
     bool loggedPlaying = false;
+#endif
 
     for (;;) {
         platform.pollInput(input);
@@ -73,7 +85,9 @@ int main() {
         if (frame == 12 || frame == 15) input.start = true;
 #endif
 
+#ifdef GBA_PROFILE
         const uint32_t before = gbadbg::cycles();
+#endif
 
         game.update(input, dt);
 
@@ -94,6 +108,7 @@ int main() {
             drawScreen(fb, game);
         }
 
+#ifdef GBA_PROFILE
         // Overlay con la ultima medida disponible (la del frame anterior: la
         // de este frame todavia no se conoce porque incluye el propio
         // present()). Se dibuja SIEMPRE, sobre cualquier pantalla, para poder
@@ -106,9 +121,12 @@ int main() {
         drawText(fb, 2, 2, overlay, uint8_t(PAL_UI_ACCENT), 1);
 
         const uint32_t beforePresent = gbadbg::cycles();
-        platform.present(fb);
-        const uint32_t presentCycles = gbadbg::cycles() - beforePresent;
+#endif  // GBA_PROFILE
 
+        platform.present(fb);
+
+#ifdef GBA_PROFILE
+        const uint32_t presentCycles = gbadbg::cycles() - beforePresent;
         const uint32_t frameCycles = gbadbg::cycles() - before;
 
         // Un frame de la pantalla de titulo (barato: solo texto) y uno ya
@@ -148,7 +166,10 @@ int main() {
             gbadbg::log(msg);
             loggedPlaying = true;
         }
+#endif  // GBA_PROFILE
 
+#if defined(GBA_PROFILE) || defined(GBA_AUTOSTART)
         ++frame;
+#endif
     }
 }
