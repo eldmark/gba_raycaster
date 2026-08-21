@@ -43,7 +43,6 @@ MVP (sección 29 del documento de diseño):
 - [x] Cámara sellada con llave de archivo
 - [x] Jefe final — NUCLEO CENTINELA
 - [x] Música y efectos de sonido
-- [x] Ratón, mando y selección de archivo
 - [ ] Port a Game Boy Advance
 
 ## Compilar y jugar
@@ -67,32 +66,26 @@ Sin argumento, cada partida usa una seed nueva y la imprime al arrancar.
 
 ## Controles
 
-| Teclado          | Ratón / mando                        | Acción                     | GBA   |
-| ---------------- | ------------------------------------ | -------------------------- | ----- |
-| ↑ ↓ / W S        | Stick izquierdo                      | Avanzar / retroceder       | D-PAD |
-| ← → / A D        | **Ratón** · stick derecho            | Girar                      | D-PAD |
-| Espacio · Ctrl   | Clic izquierdo · botón A · gatillo R | Disparar                   | A     |
-| ← → en el título | D-PAD · stick                        | Elegir archivo de entrada  | D-PAD |
-| Enter            | START                                | Continuar / nueva run      | START |
-| Esc              | —                                    | Salir                      | —     |
+| Tecla   | Acción                            | Mando            | GBA   |
+| ------- | --------------------------------- | ---------------- | ----- |
+| ↑ ↓ W S | Avanzar / retroceder              | Stick derecho    | D-PAD |
+| ← → A D | Girar                             | Stick izq. ↔     | D-PAD |
+| Ratón ↔ | Girar                             | Stick izq. ↔     | —     |
+| Ratón ↕ | Mirar arriba / abajo              | Stick izq. ↕     | —     |
+| Espacio | Disparar                          | A / gatillo der. | A     |
+| Enter   | Nueva run (al terminar la actual) | START            | START |
+| Esc     | Salir                             | —                | —     |
 
-El ratón gira con el cursor capturado, así que se puede girar sin tope. El
-mando se detecta al arrancar **y al enchufarlo con el juego abierto**. Los
-sticks entregan una cantidad, no un sí/no, así que la entrada abstracta lleva
-dos campos analógicos (`turn` y `thrust`) que en GBA se quedan en cero y no
-cuestan nada.
+**El stick izquierdo apunta y el derecho mueve.** Antes el eje horizontal del
+stick de movimiento también giraba la cámara, así que avanzar en diagonal
+rotaba la vista sin haberlo pedido: eso es lo que marea. Ahora un stick mueve,
+el otro mira, y ninguno hace las dos cosas.
 
-Hay una diferencia real entre los dos: el ratón entrega un desplazamiento ya
-hecho y el stick una velocidad. Por eso el giro del ratón **no** se escala por
-el tiempo del frame —hacerlo ataría la sensibilidad a los FPS— y el del stick
-sí.
-
-## Selección de archivo
-
-La pantalla de título deja elegir por cuál de los cinco archivos entrar, con
-las flechas. Las puntas del selector solo se dibujan del lado al que todavía se
-puede mover. El marcador cuenta los archivos desde donde arrancó la run, no
-desde el uno, así que entrar por el quinto no regala cuatro pisos de puntos.
+Mirar arriba y abajo desplaza el horizonte, no rota la cámara de verdad: el
+raycaster sigue siendo plano, que es lo único que cabe en el presupuesto de la
+GBA. La mira del HUD se mueve con el horizonte para que siga marcando dónde se
+apunta. El disparo es horizontal siempre, porque las paredes y los guardianes
+ocupan toda la altura de la celda.
 
 ## La cámara sellada
 

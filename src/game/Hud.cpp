@@ -2,6 +2,7 @@
 
 #include "Framebuffer.h"
 #include "Game.h"
+#include "Renderer.h"
 #include "Text.h"
 #include "Textures.h"
 
@@ -54,7 +55,9 @@ void drawHud(Framebuffer &fb, const Game &game)
     // --- mira -----------------------------------------------------------------
     // Cuatro trazos y un hueco en medio: una cruz llena taparia justo lo que se
     // esta apuntando.
-    const int cx = fb.width() / 2, cy = fb.height() / 2;
+    // La mira sigue al horizonte: si se queda clavada en el centro deja de
+    // marcar hacia donde se apunta en cuanto se inclina la vista.
+    const int cx = fb.width() / 2, cy = horizonY(fb.height(), game.player());
     const int arm = 4 * s, gap = 2 * s, th = (s > 1) ? s : 1;
     const unsigned char aim = game.muzzleFlash() ? PAL_UI_ACCENT : PAL_UI_TEXT;
     fb.fillRect(cx - gap - arm, cy, arm, th, aim);

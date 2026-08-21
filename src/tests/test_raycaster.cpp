@@ -2,6 +2,7 @@
 #include "Maze.h"
 #include "Player.h"
 #include "Raycaster.h"
+#include "Renderer.h"
 
 #include <cassert>
 #include <cmath>
@@ -172,6 +173,31 @@ int main() {
         in.thrust = -FX_ONE;
         updatePlayer(p, in, maze, FX_ONE / 60);
         assert(p.x < fxFloat(1.5f));
+    }
+
+    // La inclinacion de la vista mueve el horizonte y se queda topada. Mirar
+    // arriba lo BAJA: eso es lo que descubre mas cielo.
+    {
+        Player p{fxFloat(1.5f), fxFloat(1.5f), 0, fxFloat(0.57735027f)};
+        assert(horizonY(160, p) == 80);  // sin inclinar, el horizonte al centro
+
+        Input up;
+        up.look = fxFloat(0.25f);
+        updatePlayer(p, up, maze, FX_ONE / 60);
+        assert(p.pitch > 0);
+        assert(horizonY(160, p) > 80);
+
+        // Mantenerlo a fondo no se sale de la pantalla: el tope de Player.cpp
+        // corta antes, y horizonY recorta lo que quede.
+        for (int i = 0; i < 200; ++i) updatePlayer(p, up, maze, FX_ONE / 60);
+        const int top = horizonY(160, p);
+        assert(top > 80 && top < 160);
+
+        Input down;
+        down.look = -fxFloat(0.25f);
+        for (int i = 0; i < 400; ++i) updatePlayer(p, down, maze, FX_ONE / 60);
+        const int bottom = horizonY(160, p);
+        assert(bottom < 80 && bottom > 0);
     }
 
     std::printf("all tests passed\n");

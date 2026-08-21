@@ -14,6 +14,11 @@ struct SpriteInstance {
     int kind = 0; // 0 WARDEN; los demas son objetos recogibles
 };
 
+// Fila del horizonte para un jugador y una altura de pantalla dados. El HUD la
+// usa para poner la mira donde de verdad se esta apuntando, asi que vive aqui y
+// no duplicada en Hud.cpp.
+int horizonY(int screenH, const Player& player);
+
 // Dibuja techo, suelo y paredes, y deja en el z-buffer interno la distancia de
 // la pared de cada columna. renderSprites lo consulta despues.
 void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player);

@@ -66,10 +66,21 @@ Camera cameraOf(const Player& p) {
 
 }  // namespace
 
+int horizonY(int screenH, const Player& player) {
+    const int half = screenH / 2;
+    // Se recorta a la pantalla: mas alla no hay filas que desplazar y las
+    // bandas de cielo y suelo saldrian con altura negativa.
+    return std::clamp(half + fxFloorInt(fxMul(player.pitch, fxInt(half))), 0, screenH);
+}
+
 void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
     const int w = fb.width();
     const int h = fb.height();
-    const int half = h / 2;
+    // El horizonte se mueve con la inclinacion de la vista. Todo lo que antes
+    // colgaba de h/2 cuelga ahora de aqui: bandas, rejilla y paredes se
+    // desplazan juntas, que es lo que hace que mirar arriba se lea como mirar
+    // arriba y no como que el mundo se parte por la mitad.
+    const int half = horizonY(h, player);
     const Camera cam = cameraOf(player);
 
     // cielo y piso en bandas de paleta: degradan sin costar mas que 2*BG_LEVELS
@@ -157,7 +168,7 @@ void renderSprites(Framebuffer& fb, const Player& player,
                    SpriteInstance* sprites, int count) {
     const int w = fb.width();
     const int h = fb.height();
-    const int half = h / 2;
+    const int half = horizonY(h, player);
     const Camera cam = cameraOf(player);
 
     // De lejos a cerca: si no, un enemigo lejano se dibuja encima de uno

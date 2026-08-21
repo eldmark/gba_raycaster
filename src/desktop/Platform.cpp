@@ -21,6 +21,15 @@ constexpr int MOUSE_SENS = 40;
 // rapido que mantener una flecha.
 constexpr float STICK_TURN_PER_SEC = 31294.0f;
 
+// Inclinacion maxima del stick, en fracciones de media pantalla por segundo.
+// Con 1.2 el recorrido util entero (Player::MAX_PITCH, 0.6 a cada lado) se
+// cubre en medio segundo: rapido para apuntar, lento para no marear.
+constexpr float STICK_LOOK_PER_SEC = 1.2f;
+
+// Unidades de pitch por pixel de raton, en fracciones de media pantalla. El
+// recorrido util son ~360 px, parecido a los 1600 px de la vuelta horizontal.
+constexpr float MOUSE_LOOK_SENS = 1.0f / 300.0f;
+
 // Zona muerta del stick analogico sobre 32767. Sin ella el jugador gira solo:
 // ningun stick real descansa exactamente en cero.
 constexpr int DEADZONE = 8000;
@@ -96,7 +105,7 @@ bool Platform::pollInput(Input& input) {
     // El movimiento del raton se ACUMULA por eventos, no se lee de un estado:
     // entre dos frames puede haber varios eventos de movimiento y quedarse con
     // el ultimo perderia parte del giro.
-    int mouseDX = 0;
+    int mouseDX = 0, mouseDY = 0;
 
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
@@ -105,6 +114,7 @@ bool Platform::pollInput(Input& input) {
                 return false;
             case SDL_MOUSEMOTION:
                 mouseDX += ev.motion.xrel;
+                mouseDY += ev.motion.yrel;
                 break;
             case SDL_CONTROLLERDEVICEADDED:
                 if (!pad_) pad_ = SDL_GameControllerOpen(ev.cdevice.which);
@@ -140,6 +150,9 @@ bool Platform::pollInput(Input& input) {
     input.start = keys[SDL_SCANCODE_RETURN];
 
     input.turn = mouseDX * MOUSE_SENS;
+    // Hacia arriba el raton da yrel negativo, y mirar arriba baja el horizonte:
+    // el signo se invierte una sola vez, aqui.
+    input.look = fx(float(-mouseDY) * MOUSE_LOOK_SENS * float(FX_ONE));
 
     if (pad_) {
         SDL_GameController* pad = static_cast<SDL_GameController*>(pad_);
@@ -158,19 +171,26 @@ bool Platform::pollInput(Input& input) {
                          DEADZONE;
         input.start = input.start || held(SDL_CONTROLLER_BUTTON_START);
 
-        // Giro: stick derecho, y el izquierdo tambien para un mando de un solo
-        // pulgar. A diferencia del raton esto es una velocidad, asi que va
-        // multiplicado por el tiempo del frame.
-        float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX));
-        if (turn == 0.0f) {
-            turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
-        }
+        // Stick izquierdo: apuntar. Stick derecho: moverse. Los dos ejes de la
+        // vista viven en el mismo pulgar a proposito; antes el eje X del stick
+        // de movimiento tambien giraba la camara, asi que avanzar en diagonal
+        // hacia adelante rotaba la vista sin haberlo pedido, y eso es lo que
+        // marea. Un stick mueve, el otro mira, y ninguno hace las dos cosas.
+        //
+        // A diferencia del raton esto es una velocidad, asi que va multiplicado
+        // por el tiempo del frame.
+        const float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
         input.turn += int32_t(turn * STICK_TURN_PER_SEC * frameSeconds);
 
-        // Avance analogico. El eje Y de SDL crece hacia abajo, asi que empujar
-        // el stick hacia adelante da negativo y hay que invertirlo.
-        const float thrust =
+        // El eje Y de SDL crece hacia abajo, asi que empujar el stick hacia
+        // adelante da negativo y hay que invertirlo en los dos casos: arriba es
+        // mirar arriba, y arriba es avanzar.
+        const float look =
             -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
+        input.look += fx(look * STICK_LOOK_PER_SEC * frameSeconds * float(FX_ONE));
+
+        const float thrust =
+            -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY));
         input.thrust = fx(thrust * float(FX_ONE));
     }
 
