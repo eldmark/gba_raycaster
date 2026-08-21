@@ -153,25 +153,31 @@ bool Platform::pollInput(Input& input) {
         input.right = input.right || held(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
         input.fwd = input.fwd || held(SDL_CONTROLLER_BUTTON_DPAD_UP);
         input.back = input.back || held(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
-        input.fire = input.fire || held(SDL_CONTROLLER_BUTTON_A) ||
-                     SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >
-                         DEADZONE;
+        // Solo el boton X dispara. El gatillo se quita a proposito: con un
+        // unico stick el pulgar derecho queda libre, y dejar dos botones vivos
+        // para lo mismo hace que un roce del gatillo dispare sin querer.
+        input.fire = input.fire || held(SDL_CONTROLLER_BUTTON_X);
         input.start = input.start || held(SDL_CONTROLLER_BUTTON_START);
 
-        // Un stick gira y el otro mueve, y ninguno hace las dos cosas. Antes el
-        // izquierdo avanzaba con su eje Y y ademas giraba con el X siempre que
-        // el derecho estuviera centrado: empujarlo en diagonal hacia adelante
-        // rotaba la camara sin haberlo pedido, y eso es lo que marea.
+        // Todo el movimiento vive en el stick izquierdo, como en el D-PAD de la
+        // consola: X gira la camara, Y camina. El derecho no se lee.
         //
-        // Izquierdo: camara. A diferencia del raton esto es una velocidad, asi
-        // que va multiplicado por el tiempo del frame.
+        // Girar y avanzar en el mismo pulgar es lo que hace que empujar en
+        // diagonal rote la vista mientras se avanza. Es un mapeo pedido a
+        // proposito, no un descuido: da el mismo control con una sola mano que
+        // tendra la version de GBA.
+        //
+        // A diferencia del raton esto es una velocidad, asi que va multiplicado
+        // por el tiempo del frame.
         const float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
         input.turn += int32_t(turn * STICK_TURN_PER_SEC * frameSeconds);
 
-        // Derecho: avance analogico. El eje Y de SDL crece hacia abajo, asi que
-        // empujar el stick hacia adelante da negativo y hay que invertirlo.
+        // El eje Y de SDL crece hacia abajo, asi que empujar el stick hacia
+        // adelante da negativo y hay que invertirlo. El avance sale siempre en
+        // la direccion de la camara: updatePlayer lo proyecta sobre player.a,
+        // asi que girar cambia hacia donde se camina.
         const float thrust =
-            -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTY));
+            -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
         input.thrust = fx(thrust * float(FX_ONE));
     }
 

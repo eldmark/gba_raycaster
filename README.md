@@ -69,9 +69,9 @@ Sin argumento, cada partida usa una seed nueva y la imprime al arrancar.
 
 | Teclado          | Ratón / mando                        | Acción                     | GBA   |
 | ---------------- | ------------------------------------ | -------------------------- | ----- |
-| ↑ ↓ / W S        | Stick derecho                        | Avanzar / retroceder       | D-PAD |
-| ← → / A D        | **Ratón** · stick izquierdo          | Girar                      | D-PAD |
-| Espacio · Ctrl   | Clic izquierdo · botón A · gatillo R | Disparar                   | A     |
+| ↑ ↓ / W S        | Stick izquierdo ↕                    | Avanzar / retroceder       | D-PAD |
+| ← → / A D        | **Ratón** · stick izquierdo ↔        | Girar                      | D-PAD |
+| Espacio · Ctrl   | Clic izquierdo · botón X             | Disparar                   | A     |
 | ← → en el título | D-PAD · stick                        | Elegir archivo de entrada  | D-PAD |
 | Enter            | START                                | Continuar / nueva run      | START |
 | Esc              | —                                    | Salir                      | —     |
@@ -87,11 +87,10 @@ hecho y el stick una velocidad. Por eso el giro del ratón **no** se escala por
 el tiempo del frame —hacerlo ataría la sensibilidad a los FPS— y el del stick
 sí.
 
-**El stick izquierdo lleva la cámara y el derecho el movimiento.** Antes el
-izquierdo hacía las dos cosas: avanzaba con su eje vertical y además giraba con
-el horizontal siempre que el derecho estuviera centrado, así que empujarlo en
-diagonal hacia adelante rotaba la vista sin haberlo pedido. Eso marea, y es un
-problema del mapeo, no del motor.
+**Todo el movimiento vive en el stick izquierdo**, igual que en el D-PAD de la
+consola: el eje horizontal gira la cámara y el vertical camina. El avance sale
+siempre en la dirección de la cámara, así que girar cambia hacia dónde se anda.
+El stick derecho no se lee, y solo el botón X dispara.
 
 ## Selección de archivo
 
