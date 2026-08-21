@@ -95,46 +95,82 @@ int updateEnemy(Enemy& e, const Maze& maze, const Nav& nav, fx playerX, fx playe
 
     e.state = Enemy::State::Chase;
 
+    // La ruta del campo de flujo, si existe. Se apunta al centro de la celda
+    // siguiente, no a su esquina, para no rozar el muro al enfilar un pasillo.
+    fx flowX = 0, flowY = 0;
+    int sx, sy;
+    const bool hasRoute = nav.step(fxFloorInt(e.x), fxFloorInt(e.y), sx, sy);
+    if (hasRoute) {
+        flowX = fxInt(fxFloorInt(e.x) + sx) + FX_ONE / 2 - e.x;
+        flowY = fxInt(fxFloorInt(e.y) + sy) + FX_ONE / 2 - e.y;
+    }
+
+    if (!sees && !hasRoute) {
+        // sin ruta y sin verlo: el jugador esta incomunicado de este guardian
+        e.state = Enemy::State::Idle;
+        return 0;
+    }
+
+    // Convierte una direccion en un paso por eje. La normalizacion usa la
+    // aproximacion octogonal |v| ~ max + min/2: evita una raiz cuadrada y se
+    // equivoca como mucho un 12%, que en la velocidad de un enemigo no se nota.
+    // Una sola division, repartida a los dos ejes: en ARMv4T cada division que
+    // se borra son ~400 ciclos.
+    const fx step = fxMul(tuning.speed, dt);
+    auto stepAlong = [&](fx dx, fx dy, fx& mx, fx& my) {
+        const fx ax = fxAbs(dx), ay = fxAbs(dy);
+        const fx len = (ax > ay) ? (ax + (ay >> 1)) : (ay + (ax >> 1));
+        if (len <= 0) {
+            mx = my = 0;
+            return false;
+        }
+        const fx k = fxDiv(step, len);
+        mx = fxMul(dx, k);
+        my = fxMul(dy, k);
+        return true;
+    };
+
     // Con el jugador a la vista se va derecho, que se mueve mas natural en una
     // sala abierta. Sin verlo se sigue el campo de flujo, o el guardian se
     // queda empujando la esquina que tiene delante.
-    fx dx, dy;
-    if (sees) {
-        dx = playerX - e.x;
-        dy = playerY - e.y;
-    } else {
-        int sx, sy;
-        if (!nav.step(fxFloorInt(e.x), fxFloorInt(e.y), sx, sy)) {
-            // sin ruta: el jugador esta incomunicado de este guardian
-            e.state = Enemy::State::Idle;
-            return 0;
-        }
-        // se apunta al centro de la celda siguiente, no a su esquina, para no
-        // rozar el muro al enfilar un pasillo
-        const fx targetX = fxInt(fxFloorInt(e.x) + sx) + FX_ONE / 2;
-        const fx targetY = fxInt(fxFloorInt(e.y) + sy) + FX_ONE / 2;
-        dx = targetX - e.x;
-        dy = targetY - e.y;
-    }
-    // normalizar con la aproximacion octogonal: |v| ~ max + min/2. Evita una
-    // raiz cuadrada y se equivoca como mucho un 12%, que en la velocidad de un
-    // enemigo no se nota.
-    fx ax = fxAbs(dx), ay = fxAbs(dy);
-    fx len = (ax > ay) ? (ax + (ay >> 1)) : (ay + (ax >> 1));
-    if (len <= 0) return 0;
+    fx mx = 0, my = 0;
+    bool moving = sees ? stepAlong(playerX - e.x, playerY - e.y, mx, my)
+                       : stepAlong(flowX, flowY, mx, my);
+    if (!moving) return 0;
 
-    // Una division, no dos: se divide el paso entre la longitud una sola vez y
-    // el resultado se reparte a los dos ejes. Algebra identica, y en ARMv4T
-    // cada division que se borra son ~400 ciclos.
-    fx step = fxMul(tuning.speed, dt);
-    fx k = fxDiv(step, len);
-    fx mx = fxMul(dx, k);
-    fx my = fxMul(dy, k);
+    bool freeX = !blocked(maze, e.x + mx, e.y);
+    bool freeY = !blocked(maze, e.x, e.y + my);
+
+    // Ir derecho no basta cuando el muro estorba. Con el jugador en linea casi
+    // recta -por ejemplo al fondo de un pasillo- la componente lateral del
+    // rumbo directo es diminuta, asi que un guardian con el hombro contra una
+    // esquina tardaba SEGUNDOS en librarla: medido, 0.0013 celdas por frame
+    // durante cinco segundos. El campo de flujo apunta al centro de la celda
+    // siguiente y rodea la esquina de inmediato, asi que en cuanto un eje se
+    // bloquea se cambia a el para este frame.
+    if (sees && hasRoute && !(freeX && freeY)) {
+        fx fx_ = 0, fy_ = 0;
+        if (stepAlong(flowX, flowY, fx_, fy_)) {
+            const bool altX = !blocked(maze, e.x + fx_, e.y);
+            const bool altY = !blocked(maze, e.x, e.y + fy_);
+            // Basta con que el campo de flujo no libere MENOS ejes que el
+            // rumbo directo. Con "estrictamente mas" no arreglaba nada: en el
+            // caso medido ambos dejaban libre solo el eje X, pero el rumbo
+            // directo apenas se desplazaba en el y el campo de flujo apunta de
+            // lleno hacia el centro de la celda contigua.
+            if (int(altX) + int(altY) >= int(freeX) + int(freeY)) {
+                mx = fx_;
+                my = fy_;
+                freeX = altX;
+                freeY = altY;
+            }
+        }
+    }
 
     // cada eje por separado, igual que el jugador: permite deslizarse por la
     // pared en vez de quedarse clavado contra una esquina
-    if (!blocked(maze, e.x + mx, e.y)) e.x += mx;
-    if (!blocked(maze, e.x, e.y + my)) e.y += my;
+    if (freeX) e.x += mx;
+    if (freeY) e.y += my;
 
     return 0;
 }
