@@ -23,12 +23,27 @@ cartucho de 73 KB que se carga en un emulador o en una flashcard. No queda
 aritmética de coma flotante en el camino de render y el framebuffer usa el mismo
 formato indexado de 8 bits que el modo 4 de la consola.
 
-Lo que le falta a esa ROM está medido, no supuesto. Un frame jugando cuesta
-6.460.017 ciclos contra los 559.333 que caben en 1/30 de segundo: **va 11,6
-veces por encima del presupuesto**, o sea unos 2,6 fps. El volcado del
-framebuffer a VRAM se lleva 965.995 ciclos él solo, casi el doble del
-presupuesto entero de un frame. Y el sonido todavía no está enganchado: la
-consola arranca muda. Corregir las dos cosas es el trabajo que queda.
+Lo que le falta a esa ROM está medido, no supuesto. Un frame jugando arrancó
+costando 6.460.017 ciclos contra los 559.333 que caben en 1/30 de segundo, o
+sea 2,6 fps. Va por 2.527.707 —**6,6 fps**— después de tres cambios, cada uno
+medido antes y después:
+
+| Cambio | Frame jugando | |
+| --- | ---: | --- |
+| Punto de partida | 6.460.017 | 2,6 fps |
+| Volcado a VRAM con DMA3 en vez de la CPU | 5.617.317 | 3,0 fps |
+| Texels de pared por puntero en vez de `setPixel` | 4.212.843 | 4,0 fps |
+| `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | **2.527.707** | **6,6 fps** |
+
+El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
+**buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
+bucle de texels valió 2,5×, y por eso una sola línea configurando las esperas
+del bus del cartucho valió 1,67× sobre el frame entero.
+
+Sigue 4,5 veces por encima del presupuesto. Lo que queda por delante es mover
+el código caliente a IWRAM compilado en ARM —misma causa raíz, ahora que está
+identificada— y enganchar el sonido, que todavía no lo está: la consola arranca
+muda.
 
 MVP (sección 29 del documento de diseño):
 
