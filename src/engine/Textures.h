@@ -26,17 +26,87 @@ struct Texture {
     uint8_t px[TEX_SIZE * TEX_SIZE];  // 0..TEX_COLORS-1
 };
 
+namespace detail {
+
+// Paleta de DESIGN.md. Por textura: [0] claro, [1] base, [2] sombra, [3] acento.
+// Los tonos derivados salen de escalar el azul base #23314A, nunca de elegir un
+// color nuevo a ojo. Por eso varios materiales terminan con el MISMO RGB bit a
+// bit (p.ej. el gris de rejilla de GRID, EXIT y DOOR): no es casualidad, es la
+// misma paleta de DESIGN.md aplicada a materiales distintos.
+constexpr uint8_t BASE_RGB[TEX_COUNT][TEX_COLORS][3] = {
+    // PANEL: azul con juntas en rosa fuerte
+    {{56, 78, 118}, {35, 49, 74}, {19, 27, 41}, {191, 32, 120}},
+    // CONDUIT: azul mas claro, dato en rosa fuerte
+    {{74, 98, 140}, {40, 56, 84}, {22, 31, 47}, {191, 32, 120}},
+    // GRID: lineas grises sobre azul, cruces en rosa sombra
+    {{170, 173, 179}, {31, 43, 66}, {19, 27, 41}, {106, 53, 83}},
+    // EXIT: azul muy oscuro, reticula clara y balizas rosas
+    {{170, 173, 179}, {26, 37, 58}, {12, 18, 29}, {191, 32, 120}},
+    // VAULT: blindaje gris azulado, remaches en rosa sombra
+    {{120, 128, 142}, {45, 58, 82}, {24, 33, 50}, {106, 53, 83}},
+    // DOOR: la mas oscura, con el cifrado en rosa fuerte
+    {{170, 173, 179}, {28, 38, 60}, {14, 20, 32}, {191, 32, 120}},
+};
+
+// Deduplica rampas de pared IDENTICAS bit a bit (no aproximadas): dos
+// materiales que comparten el mismo RGB en BASE_RGB comparten tambien la
+// rampa de sombreado en la paleta final. Se calcula en tiempo de compilacion
+// a partir de BASE_RGB, nunca a mano, para que agregar o tocar un material no
+// pueda desincronizarse de una tabla de dedup escrita aparte.
+struct WallRampTable {
+    int count;
+    uint8_t rampOf[TEX_COUNT][TEX_COLORS];   // rampa que usa cada (textura, color)
+    uint8_t rgb[TEX_COUNT * TEX_COLORS][3];  // color base de cada rampa unica
+};
+
+constexpr WallRampTable buildWallRampTable() {
+    WallRampTable t{};
+    t.count = 0;
+    for (int tex = 0; tex < TEX_COUNT; ++tex) {
+        for (int c = 0; c < TEX_COLORS; ++c) {
+            int found = -1;
+            for (int r = 0; r < t.count; ++r) {
+                if (t.rgb[r][0] == BASE_RGB[tex][c][0] &&
+                    t.rgb[r][1] == BASE_RGB[tex][c][1] &&
+                    t.rgb[r][2] == BASE_RGB[tex][c][2]) {
+                    found = r;
+                    break;
+                }
+            }
+            if (found < 0) {
+                found = t.count++;
+                t.rgb[found][0] = BASE_RGB[tex][c][0];
+                t.rgb[found][1] = BASE_RGB[tex][c][1];
+                t.rgb[found][2] = BASE_RGB[tex][c][2];
+            }
+            t.rampOf[tex][c] = uint8_t(found);
+        }
+    }
+    return t;
+}
+
+constexpr WallRampTable WALL_RAMPS = buildWallRampTable();
+
+}  // namespace detail
+
+// Cuantas rampas de pared distintas quedan tras deduplicar. Antes del dedup
+// eran TEX_COUNT * TEX_COLORS (24); varios materiales de DESIGN.md comparten
+// tono asi que en la practica salen menos.
+constexpr int WALL_RAMP_COUNT = detail::WALL_RAMPS.count;
 
 // --- mapa de la paleta --------------------------------------------------------
 // Los tramos se calculan, no se escriben a mano: agregar un material de pared
 // desplaza todo lo que viene detras y una tabla fija quedaria desincronizada.
-//   paredes  TEX_COUNT * TEX_COLORS * SHADE_LEVELS  (tex, color, nivel)
+//   paredes  WALL_RAMP_COUNT * SHADE_LEVELS  (rampas de color unicas, no
+//            tex * color: varios materiales comparten el mismo RGB base -ver
+//            detail::buildWallRampTable- y a la GBA le sobran 256 indices
+//            para regalar rampas duplicadas)
 //   techo / suelo / rejilla        BG_LEVELS cada uno
 //   minimapa                       4 colores planos
 //   sprites  SPR_COLORS * SHADE_LEVELS
 //   interfaz                       5 colores planos
 constexpr int PAL_WALLS = 0;
-constexpr int PAL_SKY = TEX_COUNT * TEX_COLORS * SHADE_LEVELS;
+constexpr int PAL_SKY = WALL_RAMP_COUNT * SHADE_LEVELS;
 constexpr int PAL_FLOOR = PAL_SKY + BG_LEVELS;
 constexpr int PAL_FLOOR_LINE = PAL_FLOOR + BG_LEVELS;
 constexpr int PAL_MAP_BG = PAL_FLOOR_LINE + BG_LEVELS;
@@ -77,10 +147,21 @@ struct SpriteFrame {
 
 static_assert(PALETTE_SIZE <= 256, "no cabe en la paleta de 8 bits de la GBA");
 
-// Primer indice de una textura a un nivel de luz dado. Sumar
-// colorIdx * SHADE_LEVELS da el indice final del texel.
-inline uint8_t wallBase(int texId, int level) {
-    return uint8_t((texId * TEX_COLORS) * SHADE_LEVELS + level);
+// Indice final de paleta para un texel: la textura y el color del texel (via
+// colorIdx, 0..TEX_COLORS-1) eligen la rampa deduplicada; level elige el
+// escalon de sombra dentro de ella.
+inline uint8_t wallBase(int texId, int colorIdx, int level) {
+    return uint8_t(detail::WALL_RAMPS.rampOf[texId][colorIdx] * SHADE_LEVELS + level);
+}
+
+// Rellena una tabla de TEX_COLORS entradas con el indice de paleta final para
+// cada color de esa textura a un nivel de sombra fijo. Se llama una vez por
+// columna (level es constante en la columna): el bucle interno del renderer
+// solo indexa el arreglo con el color del texel, sin multiplicar por pixel.
+inline void wallColumnBase(int texId, int level, uint8_t out[TEX_COLORS]) {
+    for (int c = 0; c < TEX_COLORS; ++c) {
+        out[c] = wallBase(texId, c, level);
+    }
 }
 
 // Cada caracter del mapa elige un material (ver la tabla de DESIGN.md). El
@@ -236,23 +317,9 @@ inline void fillDoor(Texture& t) {
     }
 }
 
-// Paleta de DESIGN.md. Por textura: [0] claro, [1] base, [2] sombra, [3] acento.
-// Los tonos derivados salen de escalar el azul base #23314A, nunca de elegir un
-// color nuevo a ojo.
-constexpr uint8_t BASE_RGB[TEX_COUNT][TEX_COLORS][3] = {
-    // PANEL: azul con juntas en rosa fuerte
-    {{56, 78, 118}, {35, 49, 74}, {19, 27, 41}, {191, 32, 120}},
-    // CONDUIT: azul mas claro, dato en rosa fuerte
-    {{74, 98, 140}, {40, 56, 84}, {22, 31, 47}, {191, 32, 120}},
-    // GRID: lineas grises sobre azul, cruces en rosa sombra
-    {{170, 173, 179}, {31, 43, 66}, {19, 27, 41}, {106, 53, 83}},
-    // EXIT: azul muy oscuro, reticula clara y balizas rosas
-    {{170, 173, 179}, {26, 37, 58}, {12, 18, 29}, {191, 32, 120}},
-    // VAULT: blindaje gris azulado, remaches en rosa sombra
-    {{120, 128, 142}, {45, 58, 82}, {24, 33, 50}, {106, 53, 83}},
-    // DOOR: la mas oscura, con el cifrado en rosa fuerte
-    {{170, 173, 179}, {28, 38, 60}, {14, 20, 32}, {191, 32, 120}},
-};
+// BASE_RGB y la tabla de rampas deduplicadas viven arriba, junto a
+// struct Texture: hacen falta antes para calcular WALL_RAMP_COUNT, que el
+// mapa de la paleta necesita.
 
 // WARDEN: proceso guardian. Un nucleo en rombo que late entre los dos
 // fotogramas, con cuatro corchetes fijos alrededor. Verde brillante solo en el
@@ -391,10 +458,13 @@ struct Assets {
     uint32_t pal[PALETTE_SIZE];
 };
 
-inline const Assets& assets() {
-    static Assets a;
-    static bool built = false;
-    if (!built) {
+// Corre los generadores de arriba y arma el Assets completo. Es el "codigo
+// generador" que la Fase 2 del port hornea a ROM: tools/bake_assets.cpp
+// incluye este archivo y llama a esta misma funcion en tiempo de build, asi
+// que reusa exactamente esta logica en vez de reescribirla en el host tool.
+inline Assets buildAssetsRuntime() {
+    Assets a{};
+    {
         detail::fillPanel(a.tex[0]);
         detail::fillConduit(a.tex[1]);
         detail::fillGrid(a.tex[2]);
@@ -410,14 +480,13 @@ inline const Assets& assets() {
         detail::fillKey(a.item[3]);
         detail::fillProtocol(a.item[4]);
 
-        for (int t = 0; t < TEX_COUNT; ++t) {
-            for (int c = 0; c < TEX_COLORS; ++c) {
-                const auto& rgbv = detail::BASE_RGB[t][c];
-                uint32_t base = rgb(rgbv[0], rgbv[1], rgbv[2]);
-                for (int l = 0; l < SHADE_LEVELS; ++l) {
-                    a.pal[wallBase(t, l) + c * SHADE_LEVELS] =
-                        shade(base, float(l + 1) / SHADE_LEVELS);
-                }
+        // Una rampa por color UNICO, no por (textura, color): el dedup ya
+        // paso en WALL_RAMPS, aca solo se sombrea cada rampa una vez.
+        for (int r = 0; r < WALL_RAMP_COUNT; ++r) {
+            const auto& rgbv = detail::WALL_RAMPS.rgb[r];
+            uint32_t base = rgb(rgbv[0], rgbv[1], rgbv[2]);
+            for (int l = 0; l < SHADE_LEVELS; ++l) {
+                a.pal[r * SHADE_LEVELS + l] = shade(base, float(l + 1) / SHADE_LEVELS);
             }
         }
 
@@ -464,11 +533,24 @@ inline const Assets& assets() {
         a.pal[PAL_UI_DIM] = rgb(74, 82, 100);      // gris azulado apagado
         a.pal[PAL_UI_BG] = rgb(12, 16, 26);        // casi negro
         a.pal[PAL_UI_WARN] = rgb(106, 53, 83);     // rosa sombra: integridad baja
-
-        built = true;
     }
     return a;
 }
+
+// En GBA (y en desktop, una vez que CMake corrio tools/bake_assets) este
+// header generado existe y trae kBakedAssets como datos `const`: en GBA eso
+// va a ROM, no a .bss, y no gasta ciclos de arranque generando texturas. Si
+// no existe (primer configure, o alguien incluyo Textures.h suelto) se cae al
+// camino de siempre, calculado una vez en runtime.
+#if __has_include("AssetsData.h")
+#include "AssetsData.h"
+inline const Assets& assets() { return kBakedAssets; }
+#else
+inline const Assets& assets() {
+    static const Assets a = buildAssetsRuntime();
+    return a;
+}
+#endif
 
 inline const Texture* textures() { return assets().tex; }
 inline const SpriteFrame* wardenFrames() { return assets().warden; }
