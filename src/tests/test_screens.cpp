@@ -40,6 +40,18 @@ int inked(const Framebuffer& fb) {
     return n;
 }
 
+// El texto de una pantalla se maqueta centrado dentro de un hueco. Si el bloque
+// crece de mas, desborda por ARRIBA y por ABAJO a la vez, y lo primero que pisa
+// son las bandas de acento del borde. Comprobarlas es la forma barata de
+// detectar que una linea nueva ya no cabe en 240x160.
+bool bandsIntact(const Framebuffer& fb) {
+    for (int x = 0; x < fb.width(); ++x) {
+        if (fb.pixels()[x] != PAL_UI_ACCENT) return false;
+        if (fb.pixels()[(fb.height() - 1) * fb.width() + x] != PAL_UI_ACCENT) return false;
+    }
+    return true;
+}
+
 void press(Game& g) {
     Input in;
     in.start = true;
@@ -133,6 +145,44 @@ int main() {
         assert(!g.muzzleFlash());
     }
 
+    // --- selector de archivo --------------------------------------------------
+    // Se elige por donde entrar, con topes en los dos extremos, y la run
+    // arranca ahi de verdad. Sin esto el selector seria un numero decorativo.
+    {
+        Game g;
+        g.setSeed(583291u);
+        assert(g.startFloor() == 1);
+
+        // Izquierda en el tope inferior no hace nada.
+        Input in;
+        in.left = true;
+        g.update(in, DT);
+        assert(g.startFloor() == 1);
+
+        // Mantener derecha pulsada avanza UN archivo, no uno por frame.
+        Input hold;
+        hold.right = true;
+        for (int i = 0; i < 30; ++i) g.update(hold, DT);
+        assert(g.startFloor() == 2);
+
+        // Y no pasa del ultimo por mucho que se insista.
+        for (int i = 0; i < 20; ++i) {
+            Input tap;
+            tap.right = true;
+            g.update(tap, DT);
+            Input up;
+            g.update(up, DT);
+        }
+        assert(g.startFloor() == Game::FINAL_FLOOR);
+
+        press(g);  // titulo -> reglas
+        press(g);  // reglas -> jugando
+        assert(g.state() == Game::State::Playing);
+        assert(g.floor() == Game::FINAL_FLOOR);
+        // Empezar en el ultimo archivo no regala los cuatro que se saltaron.
+        assert(g.score() == 0);
+    }
+
     // Las tres pantallas dibujan algo y ninguna se sale del framebuffer. Se
     // prueban a resolucion de GBA, que es la que menos sitio tiene: si algo
     // cabe en 240x160 cabe en cualquier ventana.
@@ -145,8 +195,10 @@ int main() {
         for (int screen = 0; screen < 2; ++screen) {
             drawScreen(gba, g);
             assert(inked(gba) > 200);
+            assert(bandsIntact(gba));
             drawScreen(big, g);
             assert(inked(big) > 2000);
+            assert(bandsIntact(big));
             press(g);
         }
 
@@ -190,6 +242,7 @@ int main() {
         drawHud(gba, over);
         assert(inked(gba) == 0);
         drawScreen(gba, over);
+        assert(bandsIntact(gba));
         assert(inked(gba) > 200);
     }
 

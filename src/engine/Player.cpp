@@ -30,10 +30,17 @@ void updatePlayer(Player& player, const Input& input, const Maze& maze, fx dt) {
     angle turn = angle((ROTATION_SPEED * int64_t(dt)) >> FX_BITS);
     if (input.left) player.a -= turn;
     if (input.right) player.a += turn;
+    // El giro analogico se suma encima y NO se escala por dt: el raton ya da
+    // un desplazamiento por frame, no una velocidad, y multiplicarlo por dt
+    // haria que la mira dependiera de los FPS.
+    player.a += angle(input.turn);
 
     fx step = 0;
     if (input.fwd) step = fxMul(MOVE_SPEED, dt);
     if (input.back) step = -fxMul(MOVE_SPEED, dt);
+    // El stick manda sobre las teclas cuando esta fuera de la zona muerta: si
+    // no, empujarlo a medias daria la misma velocidad que empujarlo del todo.
+    if (input.thrust != 0) step = fxMul(fxMul(MOVE_SPEED, dt), input.thrust);
     if (step == 0) return;
 
     fx dx = fxMul(step, fxCos(player.a));

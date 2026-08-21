@@ -44,8 +44,15 @@ find_package(SDL2 REQUIRED)
 add_executable(violethat
     src/desktop/main.cpp
     src/desktop/Platform.cpp
+    src/desktop/Audio.cpp
 )
 target_link_libraries(violethat PRIVATE game SDL2::SDL2)
+
+# Los WAV se leen desde el repositorio en vez de copiarse al directorio de
+# build: son casi 6 MB y duplicarlos en cada configuracion no aporta nada. En
+# GBA el sonido va empaquetado en la ROM y esta ruta no existe.
+target_compile_definitions(violethat PRIVATE
+    AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
 
 # el ejecutable busca maze.txt en el directorio de trabajo
 configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)

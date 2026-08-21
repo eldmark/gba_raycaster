@@ -187,7 +187,10 @@ void renderSprites(Framebuffer& fb, const Player& player,
         // detras de la camara, o tan cerca que la altura desbordaria
         if (transY < kMinDist) continue;
 
-        const int size = fxFloorInt(fxDiv(fxInt(h), transY));
+        // El nucleo centinela ocupa el doble: es el unico sprite que tiene que
+        // leerse como una amenaza distinta antes de estar a rango de disparo.
+        const int scale = sprites[i].kind == SPR_KIND_BOSS ? 2 : 1;
+        const int size = fxFloorInt(fxDiv(fxInt(h), transY)) * scale;
         if (size <= 0) continue;
 
         const int screenX = fxFloorInt(fxInt(w / 2) + fxMul(fxInt(w / 2), fxDiv(transX, transY)));
@@ -203,8 +206,9 @@ void renderSprites(Framebuffer& fb, const Player& player,
         // avance en la textura por pixel de pantalla, igual que en las paredes
         const fx texStep = fxDiv(fxInt(SPR_SIZE), fxInt(size));
         const uint8_t base = spriteBase(shadeLevel(transY, 0));
-        const SpriteFrame& frame =
-            wardenFrames()[sprites[i].frame & (SPR_FRAMES - 1)];
+        const SpriteFrame& frame = spriteIsEnemy(sprites[i].kind)
+            ? enemyFrame(sprites[i].kind, sprites[i].frame)
+            : itemFrame(sprites[i].kind);
 
         for (int x = x0; x < x1; ++x) {
             // el z-buffer es lo unico que impide ver enemigos a traves de las
@@ -224,6 +228,35 @@ void renderSprites(Framebuffer& fb, const Player& player,
                 fb.setPixel(x, y, uint8_t(base + (c - 1) * SHADE_LEVELS));
             }
         }
+    }
+}
+
+void renderConnectionLoss(Framebuffer& fb, int strength, int phase) {
+    if (strength <= 0) return;
+    const int w = fb.width(), h = fb.height();
+    // Scanlines sobre TODA la imagen: el dano se lee como un CRT perdiendo
+    // sincronizacion, no como dos rayas aisladas en el mundo 3D.
+    const int scanStep = std::max(3, 7 - strength / 2);
+    for (int y = (phase & (scanStep - 1)); y < h; y += scanStep) {
+        fb.fillRect(0, y, w, 1, PAL_UI_BG);
+    }
+
+    // Vigneta muy corta: reduce el area visible igual que una television que
+    // se cierra al perder senal, sin tapar por completo la accion.
+    const int edge = std::min(w / 8, 2 + strength * 2);
+    fb.fillRect(0, 0, edge, h, PAL_UI_BG);
+    fb.fillRect(w - edge, 0, edge, h, PAL_UI_BG);
+
+    const int bands = std::min(5 + strength * 2, 22);
+    for (int i = 0; i < bands; ++i) {
+        const int y = (phase * 13 + i * 29) % h;
+        const int rows = 1 + ((phase + i) % 3);
+        const int amount = ((phase * 7 + i * 11) % (strength * 8 + 1)) - strength * 4;
+        for (int row = 0; row < rows && y + row < h; ++row) fb.shiftRow(y + row, amount);
+        // Paquetes corruptos y linea de barrido: una interferencia marcada,
+        // no un filtro transparente que pase desapercibido.
+        const int x = (phase * 17 + i * 43) % w;
+        fb.fillRect(x, y, std::min(w - x, 12 + strength * 8), 1, PAL_UI_WARN);
     }
 }
 
@@ -274,4 +307,26 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
     }
 
     fb.fillRect(px - 1, py - 1, 3, 3, PAL_MAP_PLAYER);
+}
+
+void renderMinimapEntities(Framebuffer& fb, const Maze& maze, const Player& player,
+                           const SpriteInstance* sprites, int count) {
+    const int cell = std::max(2, fb.width() / (maze.width() * 6));
+    const int margin = cell;
+    for (int i = 0; i < count; ++i) {
+        const SpriteInstance& s = sprites[i];
+        const bool enemy = spriteIsEnemy(s.kind);
+        if (enemy) {
+            const fx dx = s.x - player.x, dy = s.y - player.y;
+            if (castRay(maze, player.x, player.y, dx, dy).perpDist <= FX_ONE) continue;
+        }
+        const int x = margin + ((s.x * cell) >> FX_BITS);
+        const int y = margin + ((s.y * cell) >> FX_BITS);
+        const uint8_t color = enemy ? spriteBase(SHADE_LEVELS - 1)
+                            : (s.kind == SPR_KIND_ITEM + 3 ||
+                               s.kind == SPR_KIND_ITEM + 4)
+                                  ? PAL_UI_ACCENT   // llave y protocolo
+                                  : PAL_UI_TEXT;
+        fb.fillRect(x - 1, y - 1, 3, 3, color);
+    }
 }

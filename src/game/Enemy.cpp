@@ -36,14 +36,17 @@ bool canSee(const Maze& maze, fx ex, fx ey, fx px, fx py) {
 }  // namespace
 
 EnemyTuning tuningForFloor(int floor) {
-    // Escalado lineal y suave: el piso 5 pega el doble que el 1 y aguanta algo
-    // mas, pero no tanto como para que el arma deje de servir.
+    // Escalado lineal. El dano se subio de 6+2/piso a 10+4/piso: con los
+    // pickups de RAM y PATCH repartidos por las salas, la version anterior
+    // dejaba llegar al ultimo archivo casi sin gastar integridad y los
+    // guardianes eran un tramite en vez de una amenaza. Ahora un descuido de
+    // tres golpes en el piso 5 cuesta mas de la mitad de la barra.
     return EnemyTuning{
-        fxInt(8),                            // vista
-        fxFloat(1.2f),                       // alcance del golpe
+        fxInt(9),                            // vista
+        fxFloat(1.3f),                       // alcance del golpe
         fxFloat(1.4f) + fxFloat(0.15f) * (floor - 1),
-        fxFloat(1.2f),                       // periodo de golpe
-        6 + 2 * (floor - 1),                 // dano
+        fxFloat(1.0f),                       // periodo de golpe
+        10 + 4 * (floor - 1),                // dano
         20 + 6 * (floor - 1),                // vida
     };
 }

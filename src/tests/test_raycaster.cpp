@@ -129,6 +129,51 @@ int main() {
         assert(p.y > FX_ONE);  // sigue dentro de la celda libre
     }
 
+    // --- entrada analogica ----------------------------------------------------
+    // El giro del raton NO se escala por dt: el raton entrega un
+    // desplazamiento ya hecho, no una velocidad, y multiplicarlo por el tiempo
+    // del frame ataria la sensibilidad a los FPS.
+    {
+        Player fast{fxFloat(1.5f), fxFloat(1.5f), 0, fxFloat(0.57735027f)};
+        Player slow = fast;
+        Input in;
+        in.turn = 3000;
+        updatePlayer(fast, in, maze, FX_ONE / 240);  // frame corto
+        updatePlayer(slow, in, maze, FX_ONE / 30);   // frame largo
+        assert(fast.a == slow.a);
+        assert(fast.a == angle(3000));
+    }
+
+    // El empuje analogico manda sobre las teclas y es proporcional: a medio
+    // stick se recorre la mitad que con la tecla a fondo.
+    {
+        Player full{fxFloat(1.5f), fxFloat(1.5f), 0, fxFloat(0.57735027f)};
+        Player half = full;
+        Input key;
+        key.fwd = true;
+        Input stick;
+        stick.fwd = true;  // la tecla esta pulsada y aun asi manda el stick
+        stick.thrust = FX_ONE / 2;
+        updatePlayer(full, key, maze, FX_ONE / 60);
+        updatePlayer(half, stick, maze, FX_ONE / 60);
+
+        const fx moved = full.x - fxFloat(1.5f);
+        const fx movedHalf = half.x - fxFloat(1.5f);
+        assert(moved > 0 && movedHalf > 0);
+        assert(fxAbs(movedHalf * 2 - moved) < 4);  // redondeo del punto fijo
+    }
+
+    // Y el stick hacia atras retrocede, aunque la tecla de avanzar siga
+    // pulsada: si no, un mando y un teclado a la vez se pelearian.
+    {
+        Player p{fxFloat(1.5f), fxFloat(1.5f), 0, fxFloat(0.57735027f)};
+        Input in;
+        in.fwd = true;
+        in.thrust = -FX_ONE;
+        updatePlayer(p, in, maze, FX_ONE / 60);
+        assert(p.x < fxFloat(1.5f));
+    }
+
     std::printf("all tests passed\n");
     return 0;
 }

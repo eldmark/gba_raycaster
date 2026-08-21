@@ -30,3 +30,12 @@ void Framebuffer::fillRect(int x, int y, int w, int h, uint8_t color) {
         std::fill(begin, begin + (x1 - x0), color);
     }
 }
+
+void Framebuffer::shiftRow(int y, int amount) {
+    if (y < 0 || y >= height_ || width_ <= 1) return;
+    amount %= width_;
+    if (amount < 0) amount += width_;
+    if (amount == 0) return;
+    auto begin = buf_.begin() + size_t(y) * size_t(width_);
+    std::rotate(begin, begin + amount, begin + width_);
+}

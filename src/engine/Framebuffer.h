@@ -16,6 +16,7 @@ public:
     void clear(uint8_t color);
     void setPixel(int x, int y, uint8_t color);
     void fillRect(int x, int y, int w, int h, uint8_t color);
+    void shiftRow(int y, int amount);
 
     const uint8_t* pixels() const { return buf_.data(); }
     int width() const { return width_; }

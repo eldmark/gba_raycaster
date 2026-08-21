@@ -10,11 +10,40 @@
 // SDL solo se incluye aqui: los headers del motor no deben arrastrarlo,
 // por eso los handles viven como void* en Platform.h.
 
+namespace {
+
+// Unidades de angulo por pixel de raton. 65536 son una vuelta, asi que con 40
+// hacen falta unos 1600 px de recorrido para girar 360 grados.
+constexpr int MOUSE_SENS = 40;
+
+// Giro maximo del stick, en unidades de angulo por segundo. Es el mismo valor
+// que usa el teclado en Player.cpp, de modo que a fondo el stick gira igual de
+// rapido que mantener una flecha.
+constexpr float STICK_TURN_PER_SEC = 31294.0f;
+
+// Zona muerta del stick analogico sobre 32767. Sin ella el jugador gira solo:
+// ningun stick real descansa exactamente en cero.
+constexpr int DEADZONE = 8000;
+
+// Pasa un eje de -32768..32767 a -1..1 aplicando la zona muerta y reescalando
+// lo que queda, para que el primer milimetro util no sea ya un salto.
+float axis(int value) {
+    if (value > -DEADZONE && value < DEADZONE) return 0.0f;
+    const float sign = value < 0 ? -1.0f : 1.0f;
+    float mag = (float(value < 0 ? -value : value) - DEADZONE) / (32767.0f - DEADZONE);
+    if (mag > 1.0f) mag = 1.0f;
+    return sign * mag;
+}
+
+}  // namespace
+
 bool Platform::init(int w, int h, const char* title) {
     width_ = w;
     height_ = h;
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    // El mando entra en el mismo init: si falta el subsistema, SDL no reporta
+    // nunca los eventos de conexion y el mando no aparece ni al enchufarlo.
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
@@ -47,26 +76,104 @@ bool Platform::init(int w, int h, const char* title) {
     }
     texture_ = texture;
 
+    // Raton capturado: en modo relativo el cursor no toca los bordes de la
+    // ventana, asi que se puede girar sin limite. Se suelta solo al salir.
+    SDL_SetRelativeMouseMode(SDL_TRUE);
+
+    // Mando ya conectado al arrancar. Los que se enchufen despues llegan como
+    // evento en pollInput.
+    for (int i = 0; i < SDL_NumJoysticks() && !pad_; ++i) {
+        if (SDL_IsGameController(i)) pad_ = SDL_GameControllerOpen(i);
+    }
+
+    lastPoll_ = SDL_GetTicks64();
     return true;
 }
 
 bool Platform::pollInput(Input& input) {
+    input = Input{};
+
+    // El movimiento del raton se ACUMULA por eventos, no se lee de un estado:
+    // entre dos frames puede haber varios eventos de movimiento y quedarse con
+    // el ultimo perderia parte del giro.
+    int mouseDX = 0;
+
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT) return false;
+        switch (ev.type) {
+            case SDL_QUIT:
+                return false;
+            case SDL_MOUSEMOTION:
+                mouseDX += ev.motion.xrel;
+                break;
+            case SDL_CONTROLLERDEVICEADDED:
+                if (!pad_) pad_ = SDL_GameControllerOpen(ev.cdevice.which);
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (pad_ && ev.cdevice.which ==
+                                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(
+                                    static_cast<SDL_GameController*>(pad_)))) {
+                    SDL_GameControllerClose(static_cast<SDL_GameController*>(pad_));
+                    pad_ = nullptr;
+                }
+                break;
+            default:
+                break;
+        }
     }
+
+    const unsigned long long now = SDL_GetTicks64();
+    const float frameSeconds = float(now - lastPoll_) / 1000.0f;
+    lastPoll_ = now;
 
     // estado del teclado, no eventos: el movimiento debe ser continuo
     // mientras la tecla siga pulsada.
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
     if (keys[SDL_SCANCODE_ESCAPE]) return false;
 
-    input.left = keys[SDL_SCANCODE_LEFT];
-    input.right = keys[SDL_SCANCODE_RIGHT];
-    input.fwd = keys[SDL_SCANCODE_UP];
-    input.back = keys[SDL_SCANCODE_DOWN];
-    input.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LCTRL];
+    input.left = keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A];
+    input.right = keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D];
+    input.fwd = keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W];
+    input.back = keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S];
+    input.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LCTRL] ||
+                 (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT));
     input.start = keys[SDL_SCANCODE_RETURN];
+
+    input.turn = mouseDX * MOUSE_SENS;
+
+    if (pad_) {
+        SDL_GameController* pad = static_cast<SDL_GameController*>(pad_);
+        auto held = [&](SDL_GameControllerButton b) {
+            return SDL_GameControllerGetButton(pad, b) != 0;
+        };
+
+        // El D-PAD se suma a las flechas; los menus se manejan con el mismo
+        // left/right por flanco que el teclado.
+        input.left = input.left || held(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+        input.right = input.right || held(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+        input.fwd = input.fwd || held(SDL_CONTROLLER_BUTTON_DPAD_UP);
+        input.back = input.back || held(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+        input.fire = input.fire || held(SDL_CONTROLLER_BUTTON_A) ||
+                     SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >
+                         DEADZONE;
+        input.start = input.start || held(SDL_CONTROLLER_BUTTON_START);
+
+        // Giro: stick derecho, y el izquierdo tambien para un mando de un solo
+        // pulgar. A diferencia del raton esto es una velocidad, asi que va
+        // multiplicado por el tiempo del frame.
+        float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX));
+        if (turn == 0.0f) {
+            turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
+        }
+        input.turn += int32_t(turn * STICK_TURN_PER_SEC * frameSeconds);
+
+        // Avance analogico. El eje Y de SDL crece hacia abajo, asi que empujar
+        // el stick hacia adelante da negativo y hay que invertirlo.
+        const float thrust =
+            -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
+        input.thrust = fx(thrust * float(FX_ONE));
+    }
+
     return true;
 }
 
@@ -101,6 +208,10 @@ void Platform::setTitle(const char* title) {
 
 void Platform::shutdown() {
     // se anula todo para que un segundo shutdown no haga nada.
+    if (pad_) {
+        SDL_GameControllerClose(static_cast<SDL_GameController*>(pad_));
+        pad_ = nullptr;
+    }
     if (texture_) {
         SDL_DestroyTexture(static_cast<SDL_Texture*>(texture_));
         texture_ = nullptr;

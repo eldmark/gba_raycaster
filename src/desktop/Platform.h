@@ -26,6 +26,11 @@ private:
     void* window_ = nullptr;
     void* renderer_ = nullptr;
     void* texture_ = nullptr;
+    void* pad_ = nullptr;  // primer mando conectado, o nullptr
     bool sdlReady_ = false;
     int width_ = 0, height_ = 0;
+    // Instante del ultimo sondeo. El stick da una VELOCIDAD de giro, asi que
+    // hay que multiplicarla por el tiempo del frame; el raton no, porque ya
+    // entrega un desplazamiento.
+    unsigned long long lastPoll_ = 0;
 };

@@ -18,7 +18,7 @@ struct Room {
     }
 };
 
-constexpr int MAX_ROOMS = 12;
+constexpr int MAX_ROOMS = MAX_LEVEL_ROOMS;
 constexpr int ROOM_MIN = 4;
 constexpr int ROOM_MAX = 8;
 
@@ -26,6 +26,12 @@ constexpr int ROOM_MAX = 8;
 // se ven iguales. Ademas cubre el requisito de la entrega de que las paredes
 // distintas del mapa tengan texturas distintas.
 constexpr char MATERIALS[] = {'+', '-', '|'};
+constexpr char EXIT_MATERIAL = 'E';
+constexpr char VAULT_MATERIAL = 'V';
+
+// Lado de la camara sellada. Pequena a proposito: es un premio, no una sala
+// mas. Se intenta primero grande y se va encogiendo, porque a partir del piso 3
+// el mapa se llena de pasillos y un hueco de 7x7 virgen deja de aparecer.
 
 void carveRoom(Maze& maze, const Room& r) {
     for (int y = r.y; y < r.y + r.h; ++y) {
@@ -41,6 +47,27 @@ void paintBorder(Maze& maze, const Room& r, char material) {
             if (maze.at(x, y) == Maze::WALL) maze.set(x, y, material);
         }
     }
+}
+
+void paintExitBorder(Maze& maze, const Room& r) {
+    for (int y = r.y - 1; y <= r.y + r.h; ++y) {
+        for (int x = r.x - 1; x <= r.x + r.w; ++x) {
+            if (maze.isWall(x, y)) maze.set(x, y, EXIT_MATERIAL);
+        }
+    }
+}
+
+// Cierto solo si el rectangulo y su anillo siguen siendo roca virgen. La
+// camara se sella cortando su unico acceso, asi que hay que garantizar que
+// ningun pasillo del camino principal la atraviese: si lo hiciera, la puerta
+// partiria el mapa en dos y el piso dejaria de poder terminarse.
+bool untouched(const Maze& maze, const Room& r) {
+    for (int y = r.y - 1; y <= r.y + r.h; ++y) {
+        for (int x = r.x - 1; x <= r.x + r.w; ++x) {
+            if (maze.at(x, y) != Maze::WALL) return false;
+        }
+    }
+    return true;
 }
 
 void carveRow(Maze& maze, int y, int xa, int xb) {
@@ -110,15 +137,70 @@ Level generateLevel(Maze& maze, uint32_t seed, int floor) {
         paintBorder(maze, rooms[i], MATERIALS[i % 3]);
     }
 
+    // --- camara sellada -------------------------------------------------------
+    // Va la ultima y sobre terreno intacto, de modo que la unica celda excavada
+    // de su anillo sea la de su propio pasillo: esa es la puerta cifrada.
+    Room vault{};
+    bool hasVault = false;
+    int doorX = 0, doorY = 0;
+    for (int attempt = 0; attempt < 400 && placed > 0; ++attempt) {
+        vault.w = vault.h = attempt < 200 ? 5 : (attempt < 320 ? 4 : 3);
+        vault.x = rng.range(2, size - vault.w - 3);
+        vault.y = rng.range(2, size - vault.h - 3);
+        if (!untouched(maze, vault)) continue;
+
+        carveRoom(maze, vault);
+        const Room& anchor = rooms[rng.range(0, placed - 1)];
+        carveCorridor(maze, vault.cx(), vault.cy(), anchor.cx(), anchor.cy(), rng);
+
+        // El anillo tenia que ser roca entera, asi que lo unico abierto en el
+        // es su propio pasillo. Se cierra ENTERO, no solo la primera celda: un
+        // codo que corre pegado al anillo lo abre en varias casillas seguidas y
+        // sellar una sola dejaba la camara accesible por el hueco de al lado.
+        for (int y = vault.y - 1; y <= vault.y + vault.h; ++y) {
+            for (int x = vault.x - 1; x <= vault.x + vault.w; ++x) {
+                const bool ring = x == vault.x - 1 || x == vault.x + vault.w ||
+                                  y == vault.y - 1 || y == vault.y + vault.h;
+                if (!ring || maze.isWall(x, y)) continue;
+                maze.set(x, y, Maze::DOOR);
+                doorX = x;  // representante: el resto se abre con el
+                doorY = y;
+                hasVault = true;
+            }
+        }
+        for (int y = vault.y - 1; y <= vault.y + vault.h; ++y) {
+            for (int x = vault.x - 1; x <= vault.x + vault.w; ++x) {
+                if (maze.at(x, y) == Maze::WALL) maze.set(x, y, VAULT_MATERIAL);
+            }
+        }
+        // Se sale con o sin cerradura: repetir el intento excavaria una segunda
+        // camara encima de la que ya quedo abierta en el mapa.
+        break;
+    }
+
     // La salida va en la ultima sala colocada, que por como se encadenan es la
     // mas lejana del inicio en numero de pasillos.
     const Room& first = rooms[0];
     const Room& last = rooms[placed - 1];
+    // La sala de extraccion tiene una carcasa propia: se puede reconocer desde
+    // el pasillo antes de ver la celda X del suelo.
+    paintExitBorder(maze, last);
     maze.set(last.cx(), last.cy(), Maze::EXIT);
 
     // +0.5 celdas: el jugador arranca en el centro de la celda, no en la
     // esquina, o el radio de colision lo mete dentro de la pared.
-    return Level{fxInt(first.cx()) + FX_ONE / 2,
-                 fxInt(first.cy()) + FX_ONE / 2,
-                 last.cx(), last.cy(), placed};
+    Level level{};
+    level.startX = fxInt(first.cx()) + FX_ONE / 2;
+    level.startY = fxInt(first.cy()) + FX_ONE / 2;
+    level.exitX = last.cx();
+    level.exitY = last.cy();
+    level.roomCount = placed;
+    for (int i = 0; i < placed; ++i) {
+        level.rooms[i] = RoomBounds{rooms[i].x, rooms[i].y, rooms[i].w, rooms[i].h};
+    }
+    level.hasVault = hasVault;
+    level.vault = RoomBounds{vault.x, vault.y, vault.w, vault.h};
+    level.doorX = doorX;
+    level.doorY = doorY;
+    return level;
 }

@@ -8,6 +8,7 @@
 // PROJECT.md; los demas se agregan cuando este funcione entero.
 struct Enemy {
     enum class State { Idle, Chase, Attack, Dead };
+    enum class Kind { Warden, Scout, Boss };
 
     fx    x, y;
     int   hp;
@@ -15,6 +16,7 @@ struct Enemy {
     fx    attackCooldown = 0;  // segundos restantes hasta poder pegar otra vez
     int   frame = 0;           // fotograma de animacion
     fx    frameTimer = 0;
+    Kind kind = Kind::Warden;
 
     bool alive() const { return state != State::Dead; }
 };

@@ -90,6 +90,16 @@ void testLevel(uint32_t seed, int floor) {
     assert(!maze.isWall(sx, sy));
     assert(maze.at(lvl.exitX, lvl.exitY) == Maze::EXIT);
 
+    // La salida debe estar rodeada por el material especial de extraccion, no
+    // por una textura de sala generica.
+    bool exitMaterial = false;
+    for (int y = 0; y < maze.height(); ++y) {
+        for (int x = 0; x < maze.width(); ++x) {
+            if (maze.at(x, y) == 'E') exitMaterial = true;
+        }
+    }
+    assert(exitMaterial);
+
     // el borde entero tiene que ser solido, o el jugador se sale del mapa
     for (int i = 0; i < maze.width(); ++i) {
         assert(maze.isWall(i, 0));
@@ -102,8 +112,35 @@ void testLevel(uint32_t seed, int floor) {
     // aislada seria imposible de terminar
     std::vector<bool> seen;
     int reached = floodFrom(maze, sx, sy, seen);
-    assert(reached == countFloor(maze));
-    assert(seen[size_t(lvl.exitY) * size_t(maze.width()) + size_t(lvl.exitX)]);
+    const size_t exitCell = size_t(lvl.exitY) * size_t(maze.width()) + size_t(lvl.exitX);
+    assert(seen[exitCell]);
+
+    if (lvl.hasVault) {
+        // La camara sellada es la UNICA parte del piso que puede quedar fuera
+        // del alcance, y solo mientras la puerta siga cifrada.
+        assert(maze.at(lvl.doorX, lvl.doorY) == Maze::DOOR);
+        const size_t vaultCell =
+            size_t(lvl.vault.cy()) * size_t(maze.width()) + size_t(lvl.vault.cx());
+        assert(!maze.isWall(lvl.vault.cx(), lvl.vault.cy()));
+        assert(!seen[vaultCell]);
+
+        // Y al descifrarla el piso vuelve a ser conexo entero. Esto es lo que
+        // impide que la puerta caiga sobre el camino principal y parta el mapa:
+        // si lo hiciera, abrirla no bastaria para alcanzarlo todo.
+        // Se abre el cifrado entero, igual que hace Game::tryUnlockVault: la
+        // camara puede estar sellada por mas de una celda si el pasillo corre
+        // pegado a su anillo.
+        Maze opened = maze;
+        for (int y = 0; y < opened.height(); ++y) {
+            for (int x = 0; x < opened.width(); ++x) {
+                if (opened.at(x, y) == Maze::DOOR) opened.set(x, y, Maze::FLOOR);
+            }
+        }
+        std::vector<bool> seenOpen;
+        assert(floodFrom(opened, sx, sy, seenOpen) == countFloor(opened));
+    } else {
+        assert(reached == countFloor(maze));
+    }
 
     // las paredes deben usar mas de un material, o todas las salas se ven igual
     bool material[128] = {};
