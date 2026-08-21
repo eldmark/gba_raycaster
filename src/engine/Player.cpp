@@ -1,7 +1,5 @@
 #include "Player.h"
 
-#include <algorithm>
-
 #include "Maze.h"
 
 // Constantes portadas del original en pixeles (BLOCK_SIZE = 40) a celdas.
@@ -12,12 +10,6 @@ constexpr fx RADIUS = fxFloat(0.125f);     // 5.0 px / 40
 
 // 3.0 rad/s pasados a la unidad de angle: 3.0 / (2*PI) * 65536.
 constexpr int32_t ROTATION_SPEED = 31294;  // unidades de angulo por segundo
-
-// Tope de la inclinacion, en fracciones de media pantalla. Mas alla de esto el
-// desplazamiento del horizonte deja de leerse como mirar arriba y empieza a
-// leerse como que la imagen se desliza: las paredes son verticales de verdad y
-// no se inclinan con la vista.
-constexpr fx MAX_PITCH = fxFloat(0.6f);
 }  // namespace
 
 bool collides(const Maze& maze, fx x, fx y) {
@@ -42,10 +34,6 @@ void updatePlayer(Player& player, const Input& input, const Maze& maze, fx dt) {
     // un desplazamiento por frame, no una velocidad, y multiplicarlo por dt
     // haria que la mira dependiera de los FPS.
     player.a += angle(input.turn);
-
-    // Igual que el giro, la inclinacion llega ya como desplazamiento por frame
-    // y no se escala por dt aqui.
-    player.pitch = std::clamp(player.pitch + input.look, -MAX_PITCH, MAX_PITCH);
 
     fx step = 0;
     if (input.fwd) step = fxMul(MOVE_SPEED, dt);
