@@ -427,10 +427,16 @@ void Game::update(const Input& input, fx dt) {
         fire();
     }
 
+    // El BFS ya no se hace de un tiron cada NAV_PERIOD frames: eso era un pico
+    // de ~157.000 ciclos volcado en un solo frame. beginRebuild() solo arranca
+    // el buffer de fondo; tick() reparte el trabajo real a lo largo de los
+    // frames siguientes y se llama todos los frames porque no hace nada si no
+    // hay una reconstruccion en curso (ver Nav.h).
     if (--navTimer_ <= 0) {
         navTimer_ = NAV_PERIOD;
-        nav_.rebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
+        nav_.beginRebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
     }
+    nav_.tick();
 
     int damage = 0;
     for (int i = 0; i < enemyCount_; ++i) {

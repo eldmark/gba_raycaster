@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 
 #include "Maze.h"
 
@@ -15,9 +14,19 @@
 // pared para siempre.
 class Nav {
 public:
-    // Recalcula el campo desde la celda del jugador. Cuesta un recorrido del
-    // mapa entero, por eso quien llama lo hace cada varios frames y no cada uno.
+    // Reconstruccion completa y sincrona: hace el BFS entero en la llamada.
+    // Solo para los caminos donde la latencia importa mas que el pico de
+    // ciclos: cargar un piso y abrir la camara sellada (Game::tryUnlockVault),
+    // que ocurren una vez por piso, no dentro del bucle de juego a 60 fps.
     void rebuild(const Maze& maze, int px, int py);
+
+    // Version amortizada para el bucle de juego. beginRebuild() arranca un BFS
+    // nuevo en el buffer de fondo sin tocar el que step() esta leyendo; tick()
+    // desencola un presupuesto fijo de celdas y, al vaciar la cola, intercambia
+    // los dos buffers de un golpe. Llamar a tick() todos los frames es seguro:
+    // no hace nada si no hay una reconstruccion en curso.
+    void beginRebuild(const Maze& maze, int px, int py);
+    void tick(int budget = kDefaultBudget);
 
     // Paso hacia el jugador desde (x,y). false si esa celda no lleva a ninguna
     // parte: fuera del mapa, dentro de un muro o en una zona incomunicada.
@@ -26,9 +35,31 @@ public:
 private:
     static constexpr uint8_t NONE = 0xFF;
 
-    // ponytail: un byte por celda; 48x48 son 2304 bytes, que en la EWRAM de la
-    // GBA no es nada. Si el mapa creciera, esto es lo primero que hay que mirar.
-    std::vector<uint8_t> dir_;
+    // Mismo stride que Maze (docs del port, seccion 1.1): 64x64 celdas caben
+    // en un uint16_t empaquetado como x | (y << 8), que es la cola de la fase
+    // 1.2. 4096 bytes por buffer, dos buffers, sin malloc.
+    static constexpr int kStride = 64;
+    static constexpr int kCells = kStride * kStride;
+    static constexpr int kDefaultBudget = 40;
+
+    // dir_ es lo que step() lee; dirBack_ es donde se construye el siguiente
+    // campo. Los guardianes no ven un campo a medio hacer: solo ven el
+    // intercambio ya terminado.
+    uint8_t dir_[kCells];
+    uint8_t dirBack_[kCells];
+
+    // Cola estatica de celdas por visitar, empaquetadas para no pagar la
+    // division/modulo de desempaquetar x,y de un indice plano.
+    uint16_t queue_[kCells];
+    int queueHead_ = 0;
+    int queueTail_ = 0;
+    bool building_ = false;
+
+    // Vale mientras dura una reconstruccion amortizada: el mapa no cambia de
+    // direccion entre beginRebuild() y el tick() que la termina porque ambos
+    // los llama Game sobre el mismo Maze miembro.
+    const Maze* buildMaze_ = nullptr;
+
     int width_ = 0;
     int height_ = 0;
 };

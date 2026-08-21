@@ -1,7 +1,5 @@
 #pragma once
 
-#include <vector>
-
 // Rejilla de celdas del mundo. Plana y de tamano fijo: es la forma que necesita
 // el generador para escribir y la unica que tiene sentido en la GBA.
 //
@@ -38,7 +36,7 @@ public:
     // LTO el compilador no puede quitarlas.
     char at(int x, int y) const {
         if (x < 0 || x >= width_ || y < 0 || y >= height_) return WALL;
-        return cells_[size_t(y) * size_t(width_) + size_t(x)];
+        return cells_[(y << 6) + x];
     }
 
     // Solo el suelo y la salida se pueden pisar; cualquier otro caracter es
@@ -50,7 +48,13 @@ public:
     int height() const { return height_; }
 
 private:
-    std::vector<char> cells_;
+    // Stride fijo de 64: el generador tope en 48x48 (Level.cpp), asi que sobra
+    // margen y `y * stride + x` pasa a ser `(y << 6) + x`, un desplazamiento en
+    // vez de un MUL. 64x64 = 4096 bytes en vez de los 2304 de un stride de 48;
+    // 1792 bytes de mas a cambio de la division/multiplicacion fuera del bucle
+    // caliente (docs del port, seccion 1.1).
+    static constexpr int kStride = 64;
+    char cells_[kStride * kStride];
     int width_ = 0;
     int height_ = 0;
 };
