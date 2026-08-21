@@ -39,6 +39,8 @@ extern "C" volatile uint32_t g_titleCycles;
 volatile uint32_t g_titleCycles = 0;
 extern "C" volatile uint32_t g_playingCycles;
 volatile uint32_t g_playingCycles = 0;
+extern "C" volatile uint32_t g_presentCycles;
+volatile uint32_t g_presentCycles = 0;   // solo el volcado EWRAM->VRAM + vblank
 
 int main() {
     Platform platform;
@@ -103,7 +105,9 @@ int main() {
                       intToText(n1, int(g_titleCycles)), intToText(n2, int(g_playingCycles)));
         drawText(fb, 2, 2, overlay, uint8_t(PAL_UI_ACCENT), 1);
 
+        const uint32_t beforePresent = gbadbg::cycles();
         platform.present(fb);
+        const uint32_t presentCycles = gbadbg::cycles() - beforePresent;
 
         const uint32_t frameCycles = gbadbg::cycles() - before;
 
@@ -131,6 +135,12 @@ int main() {
         // frame en juego que esta fase quiere medir.
         if (!loggedPlaying && playingFrames == kProfileFrames) {
             g_playingCycles = frameCycles;
+            g_presentCycles = presentCycles;
+            char pmsg[96];
+            std::snprintf(pmsg, sizeof(pmsg), "PRESENT cycles=%lu (%.0f%% del frame)",
+                          static_cast<unsigned long>(presentCycles),
+                          frameCycles ? 100.0 * double(presentCycles) / double(frameCycles) : 0.0);
+            gbadbg::log(pmsg);
             char msg[96];
             std::snprintf(msg, sizeof(msg), "PLAYING frame cycles=%lu (%.1f fps eq)",
                           static_cast<unsigned long>(frameCycles),

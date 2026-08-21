@@ -38,7 +38,7 @@ INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(LIBGBA)/include
 # Fixed.cpp usa M_PI y no es mio de tocar (Fase 1/2), asi que se arregla en el
 # toolchain en vez de en la fuente.
 CXXFLAGS := -mthumb -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
-            -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti \
+            -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti -fno-threadsafe-statics \
             -ffunction-sections -fdata-sections -D_GNU_SOURCE -DPLATFORM_GBA \
             -std=c++17 -Wall -Wextra $(INCLUDES)
 LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -lgba
