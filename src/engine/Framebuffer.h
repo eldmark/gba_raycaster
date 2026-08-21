@@ -11,20 +11,28 @@
 // interfaz se queda igual.
 class Framebuffer {
 public:
+    // Escritorio: reserva su propio buffer en el heap.
     Framebuffer(int w, int h);
+
+    // GBA: apunta a memoria que ya existe (un array estatico en EWRAM), sin
+    // reservar nada. Es el cambio que pide el port: EWRAM son 256 KB y un
+    // vector aqui solo arrastraria malloc/free para un tamano que se conoce en
+    // tiempo de compilacion.
+    Framebuffer(int w, int h, uint8_t* externalBuf);
 
     void clear(uint8_t color);
     void setPixel(int x, int y, uint8_t color);
     void fillRect(int x, int y, int w, int h, uint8_t color);
     void shiftRow(int y, int amount);
 
-    const uint8_t* pixels() const { return buf_.data(); }
+    const uint8_t* pixels() const { return buf_; }
     int width() const { return width_; }
     int height() const { return height_; }
 
 private:
     int width_, height_;
-    std::vector<uint8_t> buf_;
+    std::vector<uint8_t> owned_;  // vacio si el buffer es externo
+    uint8_t* buf_;
 };
 
 // Helpers de color, solo para construir la paleta al arrancar. Nada del bucle
