@@ -31,7 +31,15 @@ public:
 
     // Fuera de rango cuenta como pared solida, asi el raycaster y las
     // colisiones nunca se salen del mapa.
-    char at(int x, int y) const;
+    //
+    // Va en el header, no en el .cpp: la llaman el DDA una vez por paso, las
+    // colisiones ocho veces por enemigo y el BFS en cada vecino. Fuera de linea
+    // eso es una llamada y una recarga del puntero del vector cada vez, y sin
+    // LTO el compilador no puede quitarlas.
+    char at(int x, int y) const {
+        if (x < 0 || x >= width_ || y < 0 || y >= height_) return WALL;
+        return cells_[size_t(y) * size_t(width_) + size_t(x)];
+    }
 
     // Solo el suelo y la salida se pueden pisar; cualquier otro caracter es
     // pared. Asi agregar una textura nueva no obliga a tocar esta funcion.

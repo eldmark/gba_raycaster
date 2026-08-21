@@ -112,7 +112,9 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
 
         // altura proyectada; equivale al BLOCK_SIZE*HEIGHT/d del Rust porque
         // alla d estaba en pixeles de mundo y aca perpDist esta en celdas.
-        fx stakeHeight = fxDiv(fxInt(h), hit.perpDist);
+        // La tercera division por columna, tambien por reciproco. perpDist
+        // esta acotada por abajo por kMinDist, asi que el producto no desborda.
+        fx stakeHeight = fxMul(fxInt(h), fxRecip(hit.perpDist));
         fx exactTop = fxInt(half) - (stakeHeight >> 1);
         int top = std::max(0, fxFloorInt(exactTop));
         int bottom = std::min(h, fxFloorInt(fxInt(half) + (stakeHeight >> 1)));
@@ -193,7 +195,19 @@ void renderSprites(Framebuffer& fb, const Player& player,
         const int size = fxFloorInt(fxDiv(fxInt(h), transY)) * scale;
         if (size <= 0) continue;
 
-        const int screenX = fxFloorInt(fxInt(w / 2) + fxMul(fxInt(w / 2), fxDiv(transX, transY)));
+        // transY solo esta acotada por kMinDist, asi que un enemigo casi
+        // perpendicular a la vista da un cociente de miles y el fxMul
+        // desbordaba el int32: screenX salia arbitrario y podia aterrizar
+        // dentro de la pantalla. La cuenta se hace en 64 bits y solo se recorta
+        // el resultado, de modo que todo caso que antes NO desbordaba sale
+        // identico; el sprite mas grande posible mide h/kMinDist, asi que a
+        // 100000 pixeles del centro esta fuera de pantalla con enorme margen.
+        const fx ratio = fxDiv(transX, transY);
+        int64_t sx = (int64_t(fxInt(w / 2)) +
+                      ((int64_t(fxInt(w / 2)) * int64_t(ratio)) >> FX_BITS)) >> FX_BITS;
+        if (sx > 100000) sx = 100000;
+        if (sx < -100000) sx = -100000;
+        const int screenX = int(sx);
         const int left = screenX - size / 2;
         const int topY = half - size / 2;
 

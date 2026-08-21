@@ -14,11 +14,6 @@ void Maze::set(int x, int y, char c) {
     cells_[size_t(y) * size_t(width_) + size_t(x)] = c;
 }
 
-char Maze::at(int x, int y) const {
-    if (x < 0 || x >= width_ || y < 0 || y >= height_) return WALL;
-    return cells_[size_t(y) * size_t(width_) + size_t(x)];
-}
-
 bool Maze::load(const char* path) {
     std::ifstream file(path);
     if (!file) return false;

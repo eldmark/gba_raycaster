@@ -434,6 +434,9 @@ void Game::update(const Input& input, fx dt) {
 
     int damage = 0;
     for (int i = 0; i < enemyCount_; ++i) {
+        // Un cadaver no necesita que se le copie el tuning ni se le mire la
+        // clase: updateEnemy lo iba a descartar en la primera linea.
+        if (!enemies_[i].alive()) continue;
         EnemyTuning current = tuning_;
         if (enemies_[i].kind == Enemy::Kind::Scout) {
             current.speed += fxFloat(0.55f);
