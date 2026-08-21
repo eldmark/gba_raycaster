@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <ctime>
 
+#include "Audio.h"
 #include "Fixed.h"
 #include "Framebuffer.h"
 #include "Game.h"
@@ -31,6 +32,15 @@ int main(int argc, char** argv) {
     game.setSeed(seed);
     std::printf("semilla inicial %u\n", seed);
 
+    // El audio se engancha a lo que el juego ya expone -fogonazo, interferencia
+    // de dano, aviso de recogida y estado- en vez de anadirle una cola de
+    // eventos: la capa de juego sigue sin saber que existe el sonido, que es lo
+    // que le permite compilar tal cual para GBA.
+    Audio audio;
+    audio.init(AUDIO_DIR);
+
+    bool prevMuzzle = false, prevHurt = false, prevNotice = false;
+
     Input input;
 
     // el motor Rust movia por frame a 60 FPS fijos; aca se mide dt real y las
@@ -44,19 +54,47 @@ int main(int argc, char** argv) {
     while (platform.pollInput(input)) {
         // el paso entre pantallas lo lleva Game, no el bucle: asi la GBA hereda
         // el mismo flujo sin repetirlo
+        const Game::State before = game.state();
         game.update(input, dt);
+
+        const bool muzzle = game.muzzleFlash();
+        const bool hurt = game.connectionLoss() > 0;
+        const bool notice = game.pickupNotice() != nullptr;
+        if (muzzle && !prevMuzzle) audio.play(Audio::Shot);
+        if (hurt && !prevHurt) audio.play(Audio::Damage);
+        if (notice && !prevNotice) audio.play(Audio::Pickup);
+        prevMuzzle = muzzle;
+        prevHurt = hurt;
+        prevNotice = notice;
+
+        if (game.state() != before) {
+            if (game.state() == Game::State::Transition) audio.play(Audio::LevelUp);
+            if (game.state() == Game::State::Cleared) audio.play(Audio::Victory);
+        }
+        // El tema de asalto acompana a la partida; el resto de pantallas, desde
+        // el titulo hasta la de derrota, se quedan con el tema principal.
+        audio.setTrack(game.state() == Game::State::Playing ||
+                               game.state() == Game::State::Transition
+                           ? Audio::Assault
+                           : Audio::Menu);
 
         if (game.state() == Game::State::Playing) {
             renderWorld(fb, game.maze(), game.player());
 
             // los sprites van despues de las paredes: usan el z-buffer que
             // acaba de dejar renderWorld
-            SpriteInstance sprites[Game::MAX_ENEMIES];
-            renderSprites(fb, game.player(), sprites,
-                          game.buildSprites(sprites, Game::MAX_ENEMIES));
+            SpriteInstance sprites[Game::MAX_WORLD_SPRITES];
+            int spriteCount = game.buildSprites(sprites, Game::MAX_ENEMIES);
+            spriteCount += game.buildItemSprites(sprites + spriteCount,
+                                                 Game::MAX_WORLD_SPRITES - spriteCount);
+            renderSprites(fb, game.player(), sprites, spriteCount);
 
             renderMinimap(fb, game.maze(), game.player());
+            renderMinimapEntities(fb, game.maze(), game.player(), sprites, spriteCount);
             drawHud(fb, game);
+            // El CRT afecta tambien al HUD y al minimapa: la conexion que se
+            // cae es la pantalla completa, no solo el mundo renderizado.
+            renderConnectionLoss(fb, game.connectionLoss(), game.glitchPhase());
         } else {
             drawScreen(fb, game);
         }
@@ -93,6 +131,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    audio.shutdown();
     platform.shutdown();
     return 0;
 }

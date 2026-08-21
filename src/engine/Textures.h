@@ -13,9 +13,13 @@
 // En GBA esa paleta se copia tal cual a BG_PALETTE y el sombreado sale gratis.
 
 constexpr int TEX_SIZE = 64;    // potencia de 2: permite enmascarar en vez de %
-constexpr int TEX_COUNT = 3;
+constexpr int TEX_COUNT = 6;
 constexpr int TEX_COLORS = 4;   // colores base por textura
-constexpr int SHADE_LEVELS = 8;  // niveles de la rampa de sombreado de paredes
+// Seis niveles, no ocho: con seis materiales de pared la rampa se cobra
+// TEX_COUNT * TEX_COLORS * SHADE_LEVELS entradas y a ocho niveles la paleta se
+// pasaba de los 256 indices que admite el modo 4. El escalonado extra no se
+// distingue a 240x160.
+constexpr int SHADE_LEVELS = 6;  // niveles de la rampa de sombreado de paredes
 constexpr int BG_LEVELS = 16;    // cielo y piso: mas niveles, si no se escalona
 
 struct Texture {
@@ -24,13 +28,13 @@ struct Texture {
 
 
 // --- mapa de la paleta --------------------------------------------------------
-// [0..95]    paredes: (tex * TEX_COLORS + color) * SHADE_LEVELS + nivel
-// [96..111]  rampa de techo
-// [112..127] rampa de suelo
-// [128..143] rampa de la linea de rejilla del suelo
-// [144..147] colores planos del minimapa
-// [148..171] colores de sprites (3 x 8 niveles)
-// [172..176] colores planos de la interfaz
+// Los tramos se calculan, no se escriben a mano: agregar un material de pared
+// desplaza todo lo que viene detras y una tabla fija quedaria desincronizada.
+//   paredes  TEX_COUNT * TEX_COLORS * SHADE_LEVELS  (tex, color, nivel)
+//   techo / suelo / rejilla        BG_LEVELS cada uno
+//   minimapa                       4 colores planos
+//   sprites  SPR_COLORS * SHADE_LEVELS
+//   interfaz                       5 colores planos
 constexpr int PAL_WALLS = 0;
 constexpr int PAL_SKY = TEX_COUNT * TEX_COLORS * SHADE_LEVELS;
 constexpr int PAL_FLOOR = PAL_SKY + BG_LEVELS;
@@ -45,7 +49,8 @@ constexpr int PAL_MAP_PLAYER = PAL_MAP_RAY + 1;
 // ocupan paleta.
 constexpr int SPR_SIZE = 32;    // potencia de 2, como las paredes
 constexpr int SPR_FRAMES = 2;   // animacion de latido del guardian
-constexpr int SPR_COLORS = 3;   // sin contar el transparente
+constexpr int SPR_COLORS = 5;   // sin contar el transparente
+constexpr int ITEM_SPRITES = 5; // RAM, PATCH, CACHE, KEY, PROTOCOLO
 
 constexpr int PAL_SPRITE = PAL_MAP_PLAYER + 1;
 
@@ -85,9 +90,22 @@ inline int texIndex(char impact) {
     switch (impact) {
         case '-': return 1;
         case '|': return 2;
+        case 'E': return 3;
+        case 'V': return 4;  // carcasa de la camara sellada
+        case 'D': return 5;  // puerta cifrada
         default:  return 0;  // '+' y cualquier otra pared
     }
 }
+
+// --- clases de sprite ---------------------------------------------------------
+// Los enemigos ocupan los indices bajos y los objetos empiezan en SPR_KIND_ITEM.
+// Separarlos por rango evita que agregar un enemigo pise el numero de un objeto,
+// que es exactamente el error que se cometio al meter el SCOUT.
+constexpr int SPR_KIND_WARDEN = 0;
+constexpr int SPR_KIND_SCOUT = 1;
+constexpr int SPR_KIND_BOSS = 2;
+constexpr int SPR_KIND_ITEM = 10;
+inline bool spriteIsEnemy(int kind) { return kind < SPR_KIND_ITEM; }
 
 namespace detail {
 
@@ -165,6 +183,59 @@ inline void fillGrid(Texture& t) {
     }
 }
 
+// EXIT: marco de extraccion. Las barras diagonales y los nodos rosas forman
+// una senal que no se confunde con las tres texturas de salas normales.
+inline void fillExit(Texture& t) {
+    for (int y = 0; y < TEX_SIZE; ++y) {
+        for (int x = 0; x < TEX_SIZE; ++x) {
+            const int dx = x - TEX_SIZE / 2;
+            const int dy = y - TEX_SIZE / 2;
+            const int adx = dx < 0 ? -dx : dx;
+            const int ady = dy < 0 ? -dy : dy;
+            uint8_t c = 1;
+            if ((adx == 20 || ady == 20) && adx < 21 && ady < 21) c = 3;
+            else if ((x + y) % 16 < 2 || (x - y + TEX_SIZE) % 16 < 2) c = 0;
+            else if (adx < 8 && ady < 8) c = 2;
+            t.px[y * TEX_SIZE + x] = c;
+        }
+    }
+}
+
+// VAULT: carcasa blindada de la camara sellada. Bloques macizos con remaches,
+// sin canales ni datos: se lee como algo cerrado, no como infraestructura.
+inline void fillVault(Texture& t) {
+    for (int y = 0; y < TEX_SIZE; ++y) {
+        for (int x = 0; x < TEX_SIZE; ++x) {
+            const int bx = x & 15, by = y & 15;
+            uint8_t c;
+            if (bx < 2 || by < 2) c = 2;          // junta hundida
+            else if (bx < 4 || by < 4) c = 0;     // bisel
+            else if (bx > 5 && bx < 10 && by > 5 && by < 10) c = 3;  // remache
+            else c = 1;
+            t.px[y * TEX_SIZE + x] = c;
+        }
+    }
+}
+
+// DOOR: la cerradura. Un rombo de datos girando en el centro sobre bandas
+// diagonales, para que desde el pasillo se vea que es algo que se abre y no
+// una pared mas de la camara.
+inline void fillDoor(Texture& t) {
+    for (int y = 0; y < TEX_SIZE; ++y) {
+        for (int x = 0; x < TEX_SIZE; ++x) {
+            const int dx = x - TEX_SIZE / 2, dy = y - TEX_SIZE / 2;
+            const int diamond = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+            uint8_t c;
+            if (diamond < 8) c = 3;                       // nucleo cifrado
+            else if (diamond < 12) c = 0;                 // anillo claro
+            else if (((x + y) & 15) < 3) c = 3;           // bandas de aviso
+            else if (x < 3 || y < 3 || x > 60 || y > 60) c = 2;
+            else c = 1;
+            t.px[y * TEX_SIZE + x] = c;
+        }
+    }
+}
+
 // Paleta de DESIGN.md. Por textura: [0] claro, [1] base, [2] sombra, [3] acento.
 // Los tonos derivados salen de escalar el azul base #23314A, nunca de elegir un
 // color nuevo a ojo.
@@ -175,6 +246,12 @@ constexpr uint8_t BASE_RGB[TEX_COUNT][TEX_COLORS][3] = {
     {{74, 98, 140}, {40, 56, 84}, {22, 31, 47}, {191, 32, 120}},
     // GRID: lineas grises sobre azul, cruces en rosa sombra
     {{170, 173, 179}, {31, 43, 66}, {19, 27, 41}, {106, 53, 83}},
+    // EXIT: azul muy oscuro, reticula clara y balizas rosas
+    {{170, 173, 179}, {26, 37, 58}, {12, 18, 29}, {191, 32, 120}},
+    // VAULT: blindaje gris azulado, remaches en rosa sombra
+    {{120, 128, 142}, {45, 58, 82}, {24, 33, 50}, {106, 53, 83}},
+    // DOOR: la mas oscura, con el cifrado en rosa fuerte
+    {{170, 173, 179}, {28, 38, 60}, {14, 20, 32}, {191, 32, 120}},
 };
 
 // WARDEN: proceso guardian. Un nucleo en rombo que late entre los dos
@@ -205,12 +282,112 @@ inline void fillWarden(SpriteFrame& s, int frame) {
     }
 }
 
+inline void fillScout(SpriteFrame& s, int frame) {
+    const int core = frame ? 5 : 4;
+    for (int y = 0; y < SPR_SIZE; ++y) {
+        for (int x = 0; x < SPR_SIZE; ++x) {
+            int dx = x - SPR_SIZE / 2, dy = y - SPR_SIZE / 2;
+            int d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+            uint8_t c = 0;
+            if (d < core) c = 1;
+            else if (d < core + 2) c = 3;
+            else if ((x == 5 || x == 26) && y > 9 && y < 23) c = 2;
+            s.px[y * SPR_SIZE + x] = c;
+        }
+    }
+}
+
+// Objetos de sistema. Su silueta comunica que se recoge incluso a baja
+// resolucion: RAM son modulos, PATCH es una cruz y CACHE es un bloque de datos.
+inline void fillRam(SpriteFrame& s) {
+    for (int y = 0; y < SPR_SIZE; ++y) for (int x = 0; x < SPR_SIZE; ++x) {
+        uint8_t c = 0;
+        if (x >= 7 && x <= 24 && y >= 9 && y <= 22) c = 4;
+        if (x >= 9 && x <= 22 && y >= 11 && y <= 20) c = 3;
+        if (y >= 21 && y <= 25 && (x == 10 || x == 15 || x == 20)) c = 4;
+        s.px[y * SPR_SIZE + x] = c;
+    }
+}
+
+inline void fillPatch(SpriteFrame& s) {
+    for (int y = 0; y < SPR_SIZE; ++y) for (int x = 0; x < SPR_SIZE; ++x) {
+        const bool vertical = x >= 13 && x <= 18 && y >= 6 && y <= 26;
+        const bool horizontal = y >= 13 && y <= 18 && x >= 6 && x <= 26;
+        s.px[y * SPR_SIZE + x] = (vertical || horizontal) ? 3 : 0;
+    }
+}
+
+inline void fillCache(SpriteFrame& s) {
+    for (int y = 0; y < SPR_SIZE; ++y) for (int x = 0; x < SPR_SIZE; ++x) {
+        uint8_t c = 0;
+        if (x >= 7 && x <= 24 && y >= 7 && y <= 24) c = 4;
+        if (x >= 9 && x <= 22 && y >= 10 && y <= 21) c = ((x + y) & 4) ? 3 : 4;
+        s.px[y * SPR_SIZE + x] = c;
+    }
+}
+
+// Protocolo de extraccion: anillo de datos con un nucleo rosa. Es mas alto y
+// singular que un pickup para leerse como el objetivo de la sala final.
+inline void fillProtocol(SpriteFrame& s) {
+    for (int y = 0; y < SPR_SIZE; ++y) for (int x = 0; x < SPR_SIZE; ++x) {
+        const int dx = x - SPR_SIZE / 2, dy = y - SPR_SIZE / 2;
+        const int d2 = dx * dx + dy * dy;
+        uint8_t c = 0;
+        if (d2 >= 70 && d2 <= 120) c = 4;
+        if (d2 < 30) c = 5;
+        if ((x == 16 || y == 16) && d2 < 150) c = 3;
+        s.px[y * SPR_SIZE + x] = c;
+    }
+}
+
+// KEY: llave del archivo. Paleton dentado y anilla, la silueta mas reconocible
+// que cabe en 32 px; va en rosa fuerte porque es el unico objeto sin el que un
+// piso queda incompleto.
+inline void fillKey(SpriteFrame& s) {
+    for (int y = 0; y < SPR_SIZE; ++y) for (int x = 0; x < SPR_SIZE; ++x) {
+        const int dx = x - 10, dy = y - 16;
+        const int d2 = dx * dx + dy * dy;
+        uint8_t c = 0;
+        if (d2 >= 12 && d2 <= 30) c = 5;               // anilla
+        if (y >= 14 && y <= 17 && x >= 12 && x <= 25) c = 5;  // caña
+        if (x >= 20 && x <= 21 && y >= 17 && y <= 22) c = 5;  // diente largo
+        if (x >= 24 && x <= 25 && y >= 17 && y <= 20) c = 5;  // diente corto
+        s.px[y * SPR_SIZE + x] = c;
+    }
+}
+
+// BOSS (NUCLEO CENTINELA): el guardian del ultimo archivo. Misma gramatica que
+// el WARDEN -nucleo verde, halo rosa- pero con una coraza hexagonal completa y
+// un nucleo que se abre y cierra: se lee como el mismo linaje, mas grande.
+inline void fillBoss(SpriteFrame& s, int frame) {
+    const int core = frame ? 9 : 6;
+    for (int y = 0; y < SPR_SIZE; ++y) {
+        for (int x = 0; x < SPR_SIZE; ++x) {
+            const int cx = x - SPR_SIZE / 2, cy = y - SPR_SIZE / 2;
+            const int ax = cx < 0 ? -cx : cx, ay = cy < 0 ? -cy : cy;
+            const int diamond = ax + ay;
+            uint8_t c = 0;
+            if (diamond < core) c = 1;                       // nucleo
+            else if (diamond < core + 3) c = 3;              // halo
+            else if (diamond >= 13 && diamond <= 15) c = 2;  // coraza exterior
+            else if (diamond >= 16 && diamond <= 18 && ((x + y + frame) & 3) == 0)
+                c = 3;                                        // placas girando
+            else if (ax <= 1 && ay < 15) c = 2;              // ejes
+            else if (ay <= 1 && ax < 15) c = 2;
+            s.px[y * SPR_SIZE + x] = c;
+        }
+    }
+}
+
 }  // namespace detail
 
 // Texturas y paleta, construidas una sola vez en el primer uso.
 struct Assets {
     Texture tex[TEX_COUNT];
     SpriteFrame warden[SPR_FRAMES];
+    SpriteFrame scout[SPR_FRAMES];
+    SpriteFrame boss[SPR_FRAMES];
+    SpriteFrame item[ITEM_SPRITES];
     uint32_t pal[PALETTE_SIZE];
 };
 
@@ -221,7 +398,17 @@ inline const Assets& assets() {
         detail::fillPanel(a.tex[0]);
         detail::fillConduit(a.tex[1]);
         detail::fillGrid(a.tex[2]);
+        detail::fillExit(a.tex[3]);
+        detail::fillVault(a.tex[4]);
+        detail::fillDoor(a.tex[5]);
         for (int f = 0; f < SPR_FRAMES; ++f) detail::fillWarden(a.warden[f], f);
+        for (int f = 0; f < SPR_FRAMES; ++f) detail::fillScout(a.scout[f], f);
+        for (int f = 0; f < SPR_FRAMES; ++f) detail::fillBoss(a.boss[f], f);
+        detail::fillRam(a.item[0]);
+        detail::fillPatch(a.item[1]);
+        detail::fillCache(a.item[2]);
+        detail::fillKey(a.item[3]);
+        detail::fillProtocol(a.item[4]);
 
         for (int t = 0; t < TEX_COUNT; ++t) {
             for (int c = 0; c < TEX_COLORS; ++c) {
@@ -253,12 +440,14 @@ inline const Assets& assets() {
         a.pal[PAL_MAP_RAY] = rgb(191, 32, 120);
         a.pal[PAL_MAP_PLAYER] = rgb(170, 173, 179);
 
-        // Colores de sprite: verde de enemigo, su version apagada, y el rosa
-        // sombra para el detalle.
+        // Colores de sprite: verde reservado al enemigo; objetos en rosa y
+        // gris para que no parezcan una amenaza.
         constexpr uint8_t SPRITE_RGB[SPR_COLORS][3] = {
             {38, 191, 33},   // 1: nucleo
             {24, 110, 21},   // 2: corchetes
             {106, 53, 83},   // 3: halo
+            {170, 173, 179}, // 4: carcasa de objetos
+            {191, 32, 120},  // 5: datos de objetos
         };
         for (int c = 0; c < SPR_COLORS; ++c) {
             uint32_t base = rgb(SPRITE_RGB[c][0], SPRITE_RGB[c][1], SPRITE_RGB[c][2]);
@@ -283,4 +472,20 @@ inline const Assets& assets() {
 
 inline const Texture* textures() { return assets().tex; }
 inline const SpriteFrame* wardenFrames() { return assets().warden; }
+inline const SpriteFrame* scoutFrames() { return assets().scout; }
+inline const SpriteFrame* bossFrames() { return assets().boss; }
+
+// Fotograma de un enemigo por su clase de sprite. Centralizado aqui para que
+// el renderer no tenga que conocer que clase existe.
+inline const SpriteFrame& enemyFrame(int kind, int frame) {
+    const int f = frame & (SPR_FRAMES - 1);
+    switch (kind) {
+        case SPR_KIND_SCOUT: return scoutFrames()[f];
+        case SPR_KIND_BOSS:  return bossFrames()[f];
+        default:             return wardenFrames()[f];
+    }
+}
+inline const SpriteFrame& itemFrame(int kind) {
+    return assets().item[(kind - SPR_KIND_ITEM) % ITEM_SPRITES];
+}
 inline const uint32_t* palette() { return assets().pal; }

@@ -18,6 +18,16 @@ struct Input {
     bool back = false;
     bool fire = false;   // A en GBA: disparar
     bool start = false;  // START en GBA: reiniciar / pausar
+
+    // Giro analogico, en unidades de angulo ya listas para sumar (65536 = una
+    // vuelta). Lo llenan el raton y el stick del mando, que dan una cantidad y
+    // no un si/no; el D-PAD y las flechas siguen usando left/right. En GBA se
+    // queda en cero y no cuesta nada.
+    int32_t turn = 0;
+
+    // Empuje analogico hacia adelante o atras, -FX_ONE..FX_ONE. Cero significa
+    // "usa fwd/back", asi que un mando sin stick sigue funcionando.
+    fx thrust = 0;
 };
 
 // Mueve y rota al jugador respetando las paredes. dt en segundos (16.16).

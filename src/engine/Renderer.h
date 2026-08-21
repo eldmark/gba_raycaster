@@ -11,6 +11,7 @@ struct Player;
 struct SpriteInstance {
     fx  x, y;    // posicion en celdas
     int frame;   // fotograma de animacion
+    int kind = 0; // 0 WARDEN; los demas son objetos recogibles
 };
 
 // Dibuja techo, suelo y paredes, y deja en el z-buffer interno la distancia de
@@ -23,4 +24,12 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player);
 void renderSprites(Framebuffer& fb, const Player& player,
                    SpriteInstance* sprites, int count);
 
+// Distorsiona brevemente el framebuffer tras recibir dano: lineas que se
+// desalinean y paquetes perdidos, como una conexion que esta cayendose.
+void renderConnectionLoss(Framebuffer& fb, int strength, int phase);
+
 void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player);
+// Marcadores del minimapa: pickups/protocolo y solo enemigos con linea de
+// vision, para informar sin convertir el mapa en un radar total.
+void renderMinimapEntities(Framebuffer& fb, const Maze& maze, const Player& player,
+                           const SpriteInstance* sprites, int count);

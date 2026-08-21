@@ -10,11 +10,17 @@
 //   'X'      -> salida (se pisa, no es pared)
 //   '#'      -> pared generica
 //   '+' '-' '|' -> pared con textura propia (ver texIndex en Textures.h)
+//   'E'      -> carcasa de la sala de extraccion
+//   'V'      -> carcasa de la camara sellada
+//   'D'      -> puerta cifrada: pared solida hasta que se usa la llave
 class Maze {
 public:
     static constexpr char WALL = '#';
     static constexpr char FLOOR = '.';
     static constexpr char EXIT = 'X';
+    // Puerta cifrada de la camara sellada. Es pared hasta que el juego la
+    // reemplaza por suelo al descifrarla con la llave del archivo.
+    static constexpr char DOOR = 'D';
 
     bool load(const char* path);
 

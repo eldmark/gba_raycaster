@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "Raycaster.h"
+#include "Textures.h"  // SPR_KIND_ITEM
 
 #include <cassert>
 #include <algorithm>
@@ -66,11 +67,19 @@ double cellDist(const Player& p, int cx, int cy) {
     return std::hypot(px - (cx + 0.5), py - (cy + 0.5));
 }
 
+// Distancia a la que el piloto deja de acercarse y empieza a retroceder
+// disparando. El nucleo centinela pega a 1.8 celdas y va a un cuarto de la
+// velocidad del jugador, asi que retroceder es la forma prevista de ganarle:
+// un piloto que se planta delante y aguanta el intercambio no prueba que el
+// jefe sea justo, solo que se puede morir de pie.
+constexpr double KITE_DIST = 3.5;
+
 // Da un frame de entrada apuntando a la celda destino. Con advance en false
 // solo gira y dispara, sin acercarse: es lo que hace un jugador que tirotea a
-// distancia en vez de meterse en el cuerpo a cuerpo.
+// distancia en vez de meterse en el cuerpo a cuerpo. Con retreat se aleja
+// mientras sigue apuntando.
 bool steerToward(Game& game, int cx, int cy, bool advance = true,
-                 bool shoot = true) {
+                 bool shoot = true, bool retreat = false) {
     const Player& p = game.player();
     if (cellDist(p, cx, cy) < 0.25) {
         // ya encima del destino: se consume un frame igual disparando, o el
@@ -93,6 +102,7 @@ bool steerToward(Game& game, int cx, int cy, bool advance = true,
     // se avanza solo cuando ya se mira casi hacia el destino, o el jugador
     // describe arcos y se engancha en las esquinas
     if (advance && diff > -4000 && diff < 4000) in.fwd = true;
+    if (retreat) in.back = true;
     // el gatillo va siempre apretado: el arma tiene su propia cadencia, y sin
     // disparar el piloto muere antes de llegar a la salida
     in.fire = shoot;
@@ -133,9 +143,36 @@ int nearestEnemy(const Game& game, double maxCells) {
     return best;
 }
 
+// Conduce al jugador hasta una celda concreta, disparando por el camino.
+// Devuelve false si no llega, que es lo que delataria una ruta cortada.
+bool driveTo(Game& game, int tx, int ty) {
+    auto path = bfsPath(game.maze(), fxFloorInt(game.player().x),
+                        fxFloorInt(game.player().y), tx, ty);
+    if (path.empty()) return false;
+
+    size_t waypoint = 1;
+    for (int frames = 0; frames < 20000; ++frames) {
+        if (game.state() != Game::State::Playing) return false;
+        if (waypoint >= path.size()) return true;
+        if (!steerToward(game, path[waypoint].first, path[waypoint].second)) {
+            ++waypoint;
+        }
+    }
+    return false;
+}
+
 // Lleva al jugador hasta la salida del piso actual. Devuelve false si se
 // atasca, que significa que el piso no se puede terminar.
 bool walkToExit(Game& game) {
+    // La ruta entre archivos se muestra durante un instante; el piloto espera
+    // la pantalla igual que lo haria un jugador antes de trazar la nueva ruta.
+    int transitionFrames = 0;
+    while (game.state() == Game::State::Transition && transitionFrames++ < 200) {
+        Input idle;
+        game.update(idle, DT);
+    }
+    if (game.state() != Game::State::Playing) return false;
+
     int ex, ey;
     if (!findExit(game.maze(), ex, ey)) return false;
 
@@ -157,15 +194,16 @@ bool walkToExit(Game& game) {
         // Si hay un guardian cerca se le apunta y se le dispara; si no, se
         // sigue la ruta. Es lo minimo que hace un jugador real, y sin ello la
         // run no se puede terminar.
-        int target = nearestEnemy(game, 6.0);
+        int target = nearestEnemy(game, 8.0);
         if (target >= 0) {
             const Enemy& e = game.enemy(target);
             double dx = double(e.x - game.player().x) / FX_ONE;
             double dy = double(e.y - game.player().y) / FX_ONE;
             // acercarse solo si esta lejos; dentro de 3 celdas se dispara
             // quieto, que es como se juega de verdad
-            bool advance = std::hypot(dx, dy) > 3.0;
-            steerToward(game, fxFloorInt(e.x), fxFloorInt(e.y), advance);
+            const double d = std::hypot(dx, dy);
+            steerToward(game, fxFloorInt(e.x), fxFloorInt(e.y), d > KITE_DIST,
+                        true, d < KITE_DIST - 1.0);
             continue;
         }
 
@@ -304,6 +342,81 @@ int main() {
         }
     }
 
+    // La sala final siempre contiene el protocolo visible que cambia de piso;
+    // no es solo una celda X invisible. Los pickups normales lo acompañan.
+    {
+        Game g;
+        g.newRun(5150u);
+        SpriteInstance sprites[Game::MAX_ITEMS + 1];
+        int n = g.buildItemSprites(sprites, Game::MAX_ITEMS + 1);
+        bool protocol = false;
+        for (int i = 0; i < n; ++i)
+            protocol |= sprites[i].kind == SPR_KIND_ITEM + 4;
+        assert(protocol);
+    }
+
+    // --- camara sellada -------------------------------------------------------
+    // El recorrido completo del secreto: la camara nace cerrada, la llave esta
+    // en otra sala, y solo tras recogerla y volver a la puerta se abre. Sin
+    // este test la llave podria no hacer nada y el juego seguiria pasando el
+    // resto de la suite.
+    {
+        // Se busca una seed cuyo piso 1 tenga camara: no todos los mapas dejan
+        // sitio para una.
+        Game g;
+        uint32_t seed = 0;
+        for (uint32_t s = 1; s <= 60 && seed == 0; ++s) {
+            g.newRun(s * 7919u);
+            if (!g.vaultOpen()) seed = s * 7919u;
+        }
+        assert(seed != 0);
+
+        assert(!g.hasKey());
+        assert(!g.vaultOpen());
+
+        // Con la puerta cifrada el interior de la camara no se alcanza.
+        int doorX = -1, doorY = -1;
+        for (int y = 0; y < g.maze().height(); ++y) {
+            for (int x = 0; x < g.maze().width(); ++x) {
+                if (g.maze().at(x, y) == Maze::DOOR) { doorX = x; doorY = y; }
+            }
+        }
+        assert(doorX >= 0);
+
+        // La llave esta en el mundo como sprite recogible, no en un contador.
+        SpriteInstance items[Game::MAX_ITEMS + 1];
+        int n = g.buildItemSprites(items, Game::MAX_ITEMS + 1);
+        int keyX = -1, keyY = -1;
+        for (int i = 0; i < n; ++i) {
+            if (items[i].kind != SPR_KIND_ITEM + 3) continue;
+            keyX = fxFloorInt(items[i].x);
+            keyY = fxFloorInt(items[i].y);
+        }
+        assert(keyX >= 0);
+
+        // Se conduce hasta la llave con la misma Input de la plataforma.
+        assert(driveTo(g, keyX, keyY));
+        assert(g.hasKey());
+        assert(!g.vaultOpen());  // tener la llave no abre nada a distancia
+
+        // Y desde la llave hasta la puerta. Su celda es pared, asi que se
+        // apunta a la casilla de suelo contigua desde la que se descifra.
+        const int nx[4] = {1, -1, 0, 0}, ny[4] = {0, 0, 1, -1};
+        bool arrived = false;
+        for (int d = 0; d < 4 && !arrived; ++d) {
+            const int ax = doorX + nx[d], ay = doorY + ny[d];
+            if (g.maze().isWall(ax, ay)) continue;
+            if (bfsPath(g.maze(), fxFloorInt(g.player().x),
+                        fxFloorInt(g.player().y), ax, ay).empty()) {
+                continue;  // ese lado es el interior sellado de la camara
+            }
+            arrived = driveTo(g, ax, ay);
+        }
+        assert(arrived);
+        assert(g.vaultOpen());
+        assert(!g.maze().isWall(doorX, doorY));  // la puerta es suelo de verdad
+    }
+
     // La run se puede TERMINAR de verdad. El piloto recorre los cinco pisos
     // disparando a lo que se le cruza, y la run acaba en Cleared. Sin esto no
     // habria forma de saber si el juego es ganable o solo perdible despacio.
@@ -319,6 +432,11 @@ int main() {
         assert(g.state() == Game::State::Cleared);
         assert(g.hp() > 0);
         assert(g.kills() > 0);  // llego disparando, no escondiendose
+        // El ultimo archivo no se gana esquivando: el protocolo solo responde
+        // con el nucleo centinela abatido, asi que llegar a Cleared prueba que
+        // el jefe cayo.
+        assert(g.bossPresent());
+        assert(!g.bossAlive());
     }
 
     std::printf("all tests passed\n");

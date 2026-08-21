@@ -7,10 +7,28 @@
 
 // Donde empieza y termina un piso. Las posiciones van en celdas, centradas,
 // listas para asignarselas al jugador.
+constexpr int MAX_LEVEL_ROOMS = 12;
+
+// Se conserva la geometria de las salas para que el juego pueda colocar loot
+// dentro de ellas, en vez de repartirlo a ciegas por pasillos.
+struct RoomBounds {
+    int x, y, w, h;
+    int cx() const { return x + w / 2; }
+    int cy() const { return y + h / 2; }
+};
+
 struct Level {
     fx  startX, startY;
     int exitX, exitY;
     int roomCount;
+    RoomBounds rooms[MAX_LEVEL_ROOMS];
+
+    // Camara sellada: no se conecta al mapa por un pasillo abierto sino por
+    // una unica celda cifrada. Sin la llave del archivo no hay forma de entrar,
+    // y el resto del piso se puede terminar sin pisarla.
+    bool       hasVault = false;
+    RoomBounds vault{};
+    int        doorX = 0, doorY = 0;
 };
 
 // Genera un piso con habitaciones y pasillos (seccion 13 del PROJECT.md).
