@@ -22,6 +22,14 @@ extern "C" volatile uint32_t g_rayCycles;
 volatile uint32_t g_rayCycles = 0;
 extern "C" volatile uint32_t g_texCycles;
 volatile uint32_t g_texCycles = 0;
+extern "C" volatile uint32_t g_mmBgCycles;
+volatile uint32_t g_mmBgCycles = 0;
+extern "C" volatile uint32_t g_mmCellCycles;
+volatile uint32_t g_mmCellCycles = 0;
+extern "C" volatile uint32_t g_mmRayCycles;
+volatile uint32_t g_mmRayCycles = 0;
+extern "C" volatile uint32_t g_mmEntCycles;
+volatile uint32_t g_mmEntCycles = 0;
 #define PROF_BEGIN() const uint32_t profStart = gbadbg::cycles()
 #define PROF_ADD(acc) (acc) += gbadbg::cycles() - profStart
 #else
@@ -333,27 +341,62 @@ void renderConnectionLoss(Framebuffer& fb, int strength, int phase) {
     }
 }
 
+// Lado en pixeles de una celda del minimapa. Lo usan renderMinimap y
+// renderMinimapEntities, y tiene que dar lo MISMO en las dos o los marcadores
+// se despegan del mapa; por eso vive aqui una sola vez.
+//
+// Se dimensiona contra la ALTURA de la pantalla y no contra el ancho: el mapa
+// es cuadrado y la altura es el lado corto, asi que atarlo al ancho hacia que
+// en los 240x160 de la consola el minimapa creciera hasta 96x96 pixeles -- mas
+// de la mitad del alto de la pantalla-- mientras en el escritorio se veia
+// pequeno. Un cuarto de la altura es lo que cabe en una esquina sin tapar el
+// juego. En escritorio da exactamente el mismo tamano que antes para todos los
+// tamanos de mapa que genera Level.cpp (24 a 48); en GBA lo deja a la mitad.
+int minimapCell(const Framebuffer& fb, const Maze& maze) {
+    return std::max(1, (fb.height() / 4) / maze.height());
+}
+
 void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
-    // La rubrica lo exige en una esquina, no al lado del mapa principal: se
-    // dimensiona como fraccion de la pantalla para que ocupe lo mismo en el
-    // escritorio que en los 240x160 de la GBA.
+    // La rubrica lo exige en una esquina, no al lado del mapa principal.
     constexpr int NUM_RAYS = 24;
-    const int cell = std::max(2, fb.width() / (maze.width() * 6));
+    const int cell = minimapCell(fb, maze);
     const int margin = cell;
 
     auto toMapX = [&](fx cx) { return margin + ((cx * cell) >> FX_BITS); };
     auto toMapY = [&](fx cy) { return margin + ((cy * cell) >> FX_BITS); };
 
+#ifdef GBA_PROFILE
+    { PROF_BEGIN();
+#endif
     fb.fillRect(margin - 1, margin - 1, maze.width() * cell + 2,
                 maze.height() * cell + 2, PAL_MAP_BG);
+#ifdef GBA_PROFILE
+    PROF_ADD(g_mmBgCycles); }
+    { PROF_BEGIN();
+#endif
 
-    for (int j = 0; j < maze.height(); ++j) {
-        for (int i = 0; i < maze.width(); ++i) {
+    // Una llamada a fillRect por celda de muro costaba 234.530 ciclos por
+    // frame, el 63% del minimapa entero: unos 300 por celda, casi todo en la
+    // llamada y su recorte, para pintar un cuadrado de 1 o 5 pixeles de lado.
+    // Aqui se escribe por puntero, y el recorte se hace UNA vez acotando los
+    // limites del bucle en vez de por celda.
+    uint8_t* const px0 = fb.pixels();
+    const int fbw = fb.width();
+    const int maxI = std::min(maze.width(), (fbw - margin) / cell);
+    const int maxJ = std::min(maze.height(), (fb.height() - margin) / cell);
+    for (int j = 0; j < maxJ; ++j) {
+        uint8_t* row = px0 + size_t(margin + j * cell) * size_t(fbw) + size_t(margin);
+        for (int i = 0; i < maxI; ++i) {
             if (!maze.isWall(i, j)) continue;
-            fb.fillRect(margin + i * cell, margin + j * cell, cell, cell,
-                        PAL_MAP_WALL);
+            uint8_t* p = row + i * cell;
+            for (int cy = 0; cy < cell; ++cy, p += fbw) {
+                for (int cx = 0; cx < cell; ++cx) p[cx] = PAL_MAP_WALL;
+            }
         }
     }
+#ifdef GBA_PROFILE
+    PROF_ADD(g_mmCellCycles); }
+#endif
 
     const Camera cam = cameraOf(player);
     const int px = toMapX(player.x);
@@ -362,6 +405,9 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
     const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(NUM_RAYS));
     fx cameraX = -FX_ONE;
 
+#ifdef GBA_PROFILE
+    { PROF_BEGIN();
+#endif
     for (int i = 0; i < NUM_RAYS; ++i, cameraX += cameraStep) {
         fx rayX = cam.dirX + fxMul(cam.planeX, cameraX);
         fx rayY = cam.dirY + fxMul(cam.planeY, cameraX);
@@ -379,13 +425,20 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
         }
     }
 
+#ifdef GBA_PROFILE
+    PROF_ADD(g_mmRayCycles); }
+#endif
+
     fb.fillRect(px - 1, py - 1, 3, 3, PAL_MAP_PLAYER);
 }
 
 void renderMinimapEntities(Framebuffer& fb, const Maze& maze, const Player& player,
                            const SpriteInstance* sprites, int count) {
-    const int cell = std::max(2, fb.width() / (maze.width() * 6));
+    const int cell = minimapCell(fb, maze);
     const int margin = cell;
+#ifdef GBA_PROFILE
+    PROF_BEGIN();
+#endif
     for (int i = 0; i < count; ++i) {
         const SpriteInstance& s = sprites[i];
         const bool enemy = spriteIsEnemy(s.kind);
@@ -402,4 +455,7 @@ void renderMinimapEntities(Framebuffer& fb, const Maze& maze, const Player& play
                                   : PAL_UI_TEXT;
         fb.fillRect(x - 1, y - 1, 3, 3, color);
     }
+#ifdef GBA_PROFILE
+    PROF_ADD(g_mmEntCycles);
+#endif
 }
