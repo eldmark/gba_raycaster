@@ -90,7 +90,15 @@ int main() {
     platform.init(WIDTH, HEIGHT, "VIOLET HAT");
 
     Framebuffer fb(WIDTH, HEIGHT, g_fbBuf);
-    Game game;
+
+    // static, y no una local: Game mide unos 22 KB -- Nav son 16.384 bytes de
+    // campos de navegacion y cola, y Maze otros 4.096-- y la pila entera de la
+    // consola son 32 KB de IWRAM que ademas comparte sitio con el codigo que
+    // se coloca ahi. Como local dejaba el puntero de pila en 0x03002678,
+    // por debajo del final del codigo en IWRAM, machacandolo. Siendo static
+    // vive en .bss, que este linker script manda a EWRAM (256 KB), y la pila
+    // vuelve a tener los 32 KB para lo que son.
+    static Game game;
     // No hay RTC accesible sin hardware extra ni argv en un cartucho: semilla
     // fija. Reproducible es mejor que aleatorio de verdad para poder comparar
     // mediciones entre corridas.

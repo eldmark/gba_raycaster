@@ -65,7 +65,8 @@ LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -
 ARCHFLAGS := -mthumb
 
 IWRAM_OBJ := $(BUILD)/src/engine/Raycaster.o \
-             $(BUILD)/src/engine/Text.o
+             $(BUILD)/src/engine/Text.o \
+             $(BUILD)/src/engine/Renderer.o
 $(IWRAM_OBJ): ARCHFLAGS := -marm -mlong-calls
 
 # En la otra direccion no hace falta bandera: el enlazador inserta veneers
