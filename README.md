@@ -34,7 +34,11 @@ medido antes y después:
 | Volcado a VRAM con DMA3 en vez de la CPU | 5.617.317 | 3,0 fps |
 | Texels de pared por puntero en vez de `setPixel` | 4.212.843 | 4,0 fps |
 | `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | 2.527.707 | 6,6 fps |
-| DDA, texturas y fuente a IWRAM compilados en ARM | **1.965.916** | **8,5 fps** |
+| DDA, texturas y fuente a IWRAM compilados en ARM | 1.965.916 | 8,5 fps |
+| Minimapa reescalado, celdas y rayos sin llamadas ni divisiones | 1.685.017 | 10,0 fps |
+| `Framebuffer` a IWRAM | **1.404.127** | **12,0 fps** |
+
+La pantalla de título va a **29,9 fps**, que es el objetivo del port.
 
 El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
 **buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
@@ -52,10 +56,16 @@ mismos que ahora comparte con el código, así que el puntero de pila bajaba por
 debajo del código y lo machacaba. Como `static` vive en `.bss`, que este linker
 script manda a EWRAM.
 
-Queda una cosa por entender antes de seguir optimizando: `present()` espera al
-vblank, así que **cada frame cuesta un múltiplo entero de los 280.896 ciclos de
-un barrido de pantalla**. El frame jugando está justo por debajo de siete. Los
-ahorros no se ven en los fps hasta que cruzan uno de esos escalones.
+`present()` espera al vblank, así que **cada frame cuesta un múltiplo entero de
+los 280.896 ciclos de un barrido de pantalla**. Los ahorros no se ven en los fps
+hasta que cruzan uno de esos escalones: el frame jugando ha bajado de nueve
+barridos a cinco, y el de título de tres a dos.
+
+Dos veces el sospechoso obvio resultó no serlo, y medir antes de tocar fue lo
+que lo evitó. En el minimapa la factura no estaba en el abanico de 24 rayos
+sino en las celdas de muro, con una llamada a `fillRect` por celda. Y mover
+`Hud.o` a IWRAM valió un 0,9%: lo caro no era su código sino el `Framebuffer`
+que llamaba, que seguía en ROM.
 
 Y el sonido sigue sin engancharse: la consola arranca muda.
 
