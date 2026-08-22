@@ -386,6 +386,14 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
     const int maxJ = std::min(maze.height(), (fb.height() - margin) / cell);
     for (int j = 0; j < maxJ; ++j) {
         uint8_t* row = px0 + size_t(margin + j * cell) * size_t(fbw) + size_t(margin);
+        // cell==1 es el caso de la consola, y ahi los dos bucles de abajo
+        // montaban su armazon entero para escribir un solo byte.
+        if (cell == 1) {
+            for (int i = 0; i < maxI; ++i) {
+                if (maze.isWall(i, j)) row[i] = PAL_MAP_WALL;
+            }
+            continue;
+        }
         for (int i = 0; i < maxI; ++i) {
             if (!maze.isWall(i, j)) continue;
             uint8_t* p = row + i * cell;
@@ -417,11 +425,18 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
         int hx = toMapX(player.x + fxMul(hit.perpDist, rayX));
         int hy = toMapY(player.y + fxMul(hit.perpDist, rayY));
 
-        // linea con interpolacion, portada de Framebuffer::draw_line del Rust
+        // Linea con interpolacion. La version portada del Rust hacia dos
+        // divisiones enteras POR PIXEL --(hx-px)*s/steps y su gemela-- y el
+        // ARM7TDMI no tiene division: cada una es una rutina de software. Aqui
+        // se paga un reciproco y dos multiplicaciones por RAYO, y el avance
+        // por pixel es una suma.
         int steps = std::max({std::abs(hx - px), std::abs(hy - py), 1});
-        for (int s = 0; s <= steps; ++s) {
-            fb.setPixel(px + (hx - px) * s / steps, py + (hy - py) * s / steps,
-                        PAL_MAP_RAY);
+        const fx invSteps = fxRecip(fxInt(steps));
+        const fx stepX = fxMul(fxInt(hx - px), invSteps);
+        const fx stepY = fxMul(fxInt(hy - py), invSteps);
+        fx lx = fxInt(px), ly = fxInt(py);
+        for (int s = 0; s <= steps; ++s, lx += stepX, ly += stepY) {
+            fb.setPixel(fxFloorInt(lx), fxFloorInt(ly), PAL_MAP_RAY);
         }
     }
 
