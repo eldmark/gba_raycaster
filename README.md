@@ -36,7 +36,9 @@ medido antes y después:
 | `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | 2.527.707 | 6,6 fps |
 | DDA, texturas y fuente a IWRAM compilados en ARM | 1.965.916 | 8,5 fps |
 | Minimapa reescalado, celdas y rayos sin llamadas ni divisiones | 1.685.017 | 10,0 fps |
-| `Framebuffer` a IWRAM | **1.404.127** | **12,0 fps** |
+| `Framebuffer` a IWRAM | 1.404.127 | 12,0 fps |
+| Texto por puntero en vez de un `fillRect` por pixel | 1.404.125 | 12,0 fps |
+| Un rayo cada dos columnas en la consola | **1.123.221** | **14,9 fps** |
 
 La pantalla de título va a **29,9 fps**, que es el objetivo del port.
 
@@ -61,11 +63,19 @@ los 280.896 ciclos de un barrido de pantalla**. Los ahorros no se ven en los fps
 hasta que cruzan uno de esos escalones: el frame jugando ha bajado de nueve
 barridos a cinco, y el de título de tres a dos.
 
-Dos veces el sospechoso obvio resultó no serlo, y medir antes de tocar fue lo
+Tres veces el sospechoso obvio resultó no serlo, y medir antes de tocar fue lo
 que lo evitó. En el minimapa la factura no estaba en el abanico de 24 rayos
 sino en las celdas de muro, con una llamada a `fillRect` por celda. Y mover
 `Hud.o` a IWRAM valió un 0,9%: lo caro no era su código sino el `Framebuffer`
-que llamaba, que seguía en ROM.
+que llamaba, que seguía en ROM. Y el HUD no necesitó irse a una capa de
+hardware —imposible en modo 4, que no tiene capas de tiles— porque `drawText`
+pedía un `fillRect` entero por cada pixel encendido de cada glifo.
+
+Y dos cambios que empeoraron el frame antes de mejorarlo, los dos en el bucle
+de texels: un `for` interno de longitud variable lo llevó de 267.756 a 682.040
+ciclos, y un `std::memcpy` de dos bytes —que debería compilar a un `strh`— a
+557.592. La versión buena escribe los dos píxeles como un halfword con un
+`typedef may_alias`.
 
 Y el sonido sigue sin engancharse: la consola arranca muda.
 
