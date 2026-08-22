@@ -37,11 +37,38 @@ INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(LIBGBA)/include
 # __BSD_VISIBLE/__XSI_VISIBLE, que -std=c++17 (ISO estricto) desactiva.
 # Fixed.cpp usa M_PI y no es mio de tocar (Fase 1/2), asi que se arregla en el
 # toolchain en vez de en la fuente.
-CXXFLAGS := -mthumb -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
+CXXFLAGS := -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
             -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti -fno-threadsafe-statics \
             -ffunction-sections -fdata-sections -D_GNU_SOURCE -DPLATFORM_GBA \
             -std=c++17 -Wall -Wextra $(INCLUDES)
 LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -lgba
+
+# Fase 6: el bucle caliente se ejecuta desde IWRAM, no desde la ROM.
+#
+# La medida de la fase 4 dejo claro que el coste dominante era buscar el codigo
+# en la ROM, no ejecutarlo: configurar las esperas del cartucho valio 1,67x
+# sobre el frame entero. IWRAM es el siguiente escalon de lo mismo -- bus de 32
+# bits, cero esperas, y ahi si compensa ARM en vez de Thumb, porque cada
+# instruccion de 32 bits se lee de una sola vez.
+#
+# El reparto entre secciones lo hace gba_cart.ld, que nombra estos objetos.
+# Aqui van las banderas:
+#   -marm         instrucciones de 32 bits, que en un bus de 32 bits salen
+#                 gratis y hacen mas por instruccion que las de Thumb.
+#   -mlong-calls  la ROM esta en 0x08000000 e IWRAM en 0x03000000: 80 MB de
+#                 distancia, muy por encima de los +-32 MB que alcanza un BL.
+#                 Sin esto el enlazado falla con "relocation truncated".
+# El juego de instrucciones va en su propia variable y no dentro de CXXFLAGS:
+# el target "profile" hace CXXFLAGS += -DGBA_PROFILE, y una sobreescritura
+# por objeto de CXXFLAGS se comeria esas definiciones sin decir nada. Separadas,
+# cada regla toca solo lo suyo.
+ARCHFLAGS := -mthumb
+
+IWRAM_OBJ := $(BUILD)/src/engine/Raycaster.o
+$(IWRAM_OBJ): ARCHFLAGS := -marm -mlong-calls
+
+# En la otra direccion no hace falta bandera: el enlazador inserta veneers
+# (saltos puente) automaticamente cuando un BL desde la ROM no alcanza IWRAM.
 
 .PHONY: all clean profile
 
@@ -56,7 +83,7 @@ profile: clean $(TARGET).gba
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OBJ)
 	$(CXX) $(OBJ) $(LDFLAGS) -o $@
