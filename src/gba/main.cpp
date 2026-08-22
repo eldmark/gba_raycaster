@@ -72,6 +72,14 @@ extern "C" volatile uint32_t g_vblankCycles;
 extern "C" volatile uint32_t g_bgCycles;
 extern "C" volatile uint32_t g_rayCycles;
 extern "C" volatile uint32_t g_texCycles;
+extern "C" volatile uint32_t g_mmBgCycles;
+extern "C" volatile uint32_t g_mmCellCycles;
+extern "C" volatile uint32_t g_mmRayCycles;
+extern "C" volatile uint32_t g_mmEntCycles;
+// Cuantos sprites tenia en la mano el frame medido: sin esto no se sabe si
+// 25.778 ciclos son el coste real o el de una escena vacia.
+extern "C" volatile uint32_t g_spriteCount;
+volatile uint32_t g_spriteCount = 0;
 #define PROF_MARK(name, ...)                              \
     do {                                                  \
         const uint32_t profStart = gbadbg::cycles();      \
@@ -141,6 +149,9 @@ int main() {
             int spriteCount = game.buildSprites(sprites, Game::MAX_ENEMIES);
             spriteCount += game.buildItemSprites(sprites + spriteCount,
                                                  Game::MAX_WORLD_SPRITES - spriteCount);
+#ifdef GBA_PROFILE
+            g_spriteCount = uint32_t(spriteCount);
+#endif
             PROF_MARK(sprites, renderSprites(fb, game.player(), sprites, spriteCount));
 
             PROF_MARK(minimap, {
@@ -233,6 +244,17 @@ int main() {
                           static_cast<unsigned long>(g_rayCycles),
                           static_cast<unsigned long>(g_texCycles));
             gbadbg::log(wb);
+            char mb[110];
+            std::snprintf(mb, sizeof(mb), "  MINI bg=%lu cells=%lu rays=%lu ent=%lu",
+                          static_cast<unsigned long>(g_mmBgCycles),
+                          static_cast<unsigned long>(g_mmCellCycles),
+                          static_cast<unsigned long>(g_mmRayCycles),
+                          static_cast<unsigned long>(g_mmEntCycles));
+            gbadbg::log(mb);
+            char sb[64];
+            std::snprintf(sb, sizeof(sb), "  SPRITES count=%lu",
+                          static_cast<unsigned long>(g_spriteCount));
+            gbadbg::log(sb);
             loggedPlaying = true;
         }
 #endif  // GBA_PROFILE
