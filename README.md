@@ -33,17 +33,31 @@ medido antes y después:
 | Punto de partida | 6.460.017 | 2,6 fps |
 | Volcado a VRAM con DMA3 en vez de la CPU | 5.617.317 | 3,0 fps |
 | Texels de pared por puntero en vez de `setPixel` | 4.212.843 | 4,0 fps |
-| `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | **2.527.707** | **6,6 fps** |
+| `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | 2.527.707 | 6,6 fps |
+| DDA, texturas y fuente a IWRAM compilados en ARM | **1.965.916** | **8,5 fps** |
 
 El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
 **buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
 bucle de texels valió 2,5×, y por eso una sola línea configurando las esperas
 del bus del cartucho valió 1,67× sobre el frame entero.
 
-Sigue 4,5 veces por encima del presupuesto. Lo que queda por delante es mover
-el código caliente a IWRAM compilado en ARM —misma causa raíz, ahora que está
-identificada— y enganchar el sonido, que todavía no lo está: la consola arranca
-muda.
+El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
+buscar en la ROM el código que lo escribía. IWRAM es el último escalón de eso
+mismo —bus de 32 bits, sin esperas— y ahí sí compensa ARM en vez de Thumb.
+
+Mover `Renderer.o` a IWRAM destapó un fallo latente: `Game` mide unos 22 KB
+(`Nav` son 16.384 bytes de campos de navegación y cola, `Maze` otros 4.096) y
+era una variable local de `main`. La pila de la consola son 32 KB de IWRAM, los
+mismos que ahora comparte con el código, así que el puntero de pila bajaba por
+debajo del código y lo machacaba. Como `static` vive en `.bss`, que este linker
+script manda a EWRAM.
+
+Queda una cosa por entender antes de seguir optimizando: `present()` espera al
+vblank, así que **cada frame cuesta un múltiplo entero de los 280.896 ciclos de
+un barrido de pantalla**. El frame jugando está justo por debajo de siete. Los
+ahorros no se ven en los fps hasta que cruzan uno de esos escalones.
+
+Y el sonido sigue sin engancharse: la consola arranca muda.
 
 MVP (sección 29 del documento de diseño):
 
