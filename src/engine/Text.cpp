@@ -17,11 +17,32 @@ void drawText(Framebuffer& fb, int x, int y, const char* text, unsigned char col
               int scale) {
     const uint8_t* glyphs = fontGlyphs();
 
+    // A escala 1 --que es la de la consola-- cada pixel encendido del glifo
+    // pedia un fillRect entero: una llamada con sus cuatro recortes y su bucle
+    // de filas para escribir UN byte. El HUD son unos 90 caracteres por frame,
+    // asi que eran del orden de 1.600 llamadas. Aqui se recorta la fila una vez
+    // y se escriben los bytes por puntero.
+    uint8_t* const px0 = fb.pixels();
+    const int fbw = fb.width();
+    const int fbh = fb.height();
+
     for (const char* p = text; *p; ++p) {
         const uint8_t* g = glyphs + fontIndex(*p) * FONT_H;
         for (int row = 0; row < FONT_H; ++row) {
             uint8_t bits = g[row];
             if (bits == 0) continue;  // fila vacia: se salta entera
+            if (scale == 1) {
+                const int py = y + row;
+                if (py < 0 || py >= fbh) continue;
+                uint8_t* dst = px0 + size_t(py) * size_t(fbw);
+                for (int col = 0; col < FONT_W; ++col) {
+                    if (!(bits & (1 << (FONT_W - 1 - col)))) continue;
+                    const int pxx = x + col;
+                    if (pxx < 0 || pxx >= fbw) continue;
+                    dst[pxx] = color;
+                }
+                continue;
+            }
             for (int col = 0; col < FONT_W; ++col) {
                 if (!(bits & (1 << (FONT_W - 1 - col)))) continue;
                 fb.fillRect(x + col * scale, y + row * scale, scale, scale, color);
