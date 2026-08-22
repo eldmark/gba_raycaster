@@ -80,6 +80,15 @@ extern "C" volatile uint32_t g_mmEntCycles;
 // 25.778 ciclos son el coste real o el de una escena vacia.
 extern "C" volatile uint32_t g_spriteCount;
 volatile uint32_t g_spriteCount = 0;
+
+// Rango sobre muchos frames, no un frame suelto. Un solo numero no dice si el
+// juego va a 15 fps o si va a 15 en un pasillo vacio y a 9 con una pared en la
+// cara y medio piso de guardianes despiertos.
+constexpr int kSweepFrames = 200;
+uint32_t g_fMin = 0xFFFFFFFFu;
+uint32_t g_fMax = 0;
+uint32_t g_fSum = 0;
+int      g_fCount = 0;
 #define PROF_MARK(name, ...)                              \
     do {                                                  \
         const uint32_t profStart = gbadbg::cycles();      \
@@ -133,7 +142,25 @@ int main() {
         // existe en el target "profile" del Makefile (GBA_AUTOSTART) para
         // poder medir el frame de juego sin manos; el .gba normal no lo
         // lleva y responde solo al KEYPAD real.
+        // GBA_PROFILE_FLOOR pulsa DERECHA en la pantalla de titulo para entrar
+        // por un archivo mas avanzado. El mapa crece con el piso (28x28 en el
+        // primero, 48x48 en el ultimo), asi que medir solo el primero da el
+        // mejor caso y lo llama "el rendimiento".
+#ifdef GBA_PROFILE_FLOOR
+        if (frame >= 2 && frame < 12 && (frame & 1) == 0) input.right = true;
+#endif
         if (frame == 12 || frame == 15) input.start = true;
+        // Y una vez dentro, el jugador se mueve: girando y avanzando en ciclos
+        // largos se recorren vistas muy distintas --pasillo largo, pared en la
+        // cara, sala abierta-- que es lo unico que da un rango de coste real en
+        // vez del de un frame concreto con el jugador parado.
+        if (frame > 20) {
+            const int phase = (frame - 21) % 120;
+            input.right = phase < 30;
+            input.fwd = phase >= 30 && phase < 90;
+            input.left = phase >= 90 && phase < 100;
+            if (phase >= 100) input.back = true;
+        }
 #endif
 
 #ifdef GBA_PROFILE
@@ -256,6 +283,27 @@ int main() {
                           static_cast<unsigned long>(g_spriteCount));
             gbadbg::log(sb);
             loggedPlaying = true;
+        }
+
+        // Barrido: se ignoran los dos primeros frames jugando (el que carga el
+        // piso es un coste de una vez) y se resumen los kSweepFrames
+        // siguientes.
+        if (loggedPlaying && g_fCount < kSweepFrames) {
+            if (frameCycles < g_fMin) g_fMin = frameCycles;
+            if (frameCycles > g_fMax) g_fMax = frameCycles;
+            g_fSum += frameCycles;
+            if (++g_fCount == kSweepFrames) {
+                char sw[128];
+                std::snprintf(sw, sizeof(sw),
+                              "SWEEP n=%d min=%lu (%.1f fps) max=%lu (%.1f fps) "
+                              "media=%lu (%.1f fps)",
+                              g_fCount,
+                              static_cast<unsigned long>(g_fMin), 16780000.0 / double(g_fMin),
+                              static_cast<unsigned long>(g_fMax), 16780000.0 / double(g_fMax),
+                              static_cast<unsigned long>(g_fSum / uint32_t(g_fCount)),
+                              16780000.0 / (double(g_fSum) / double(g_fCount)));
+                gbadbg::log(sw);
+            }
         }
 #endif  // GBA_PROFILE
 

@@ -73,7 +73,7 @@ $(IWRAM_OBJ): ARCHFLAGS := -marm -mlong-calls
 # En la otra direccion no hace falta bandera: el enlazador inserta veneers
 # (saltos puente) automaticamente cuando un BL desde la ROM no alcanza IWRAM.
 
-.PHONY: all clean profile
+.PHONY: all clean profile profile-maxfloor
 
 all: $(TARGET).gba
 
@@ -83,6 +83,11 @@ all: $(TARGET).gba
 # (target "all") no lleva esta bandera y solo responde al KEYPAD real.
 profile: CXXFLAGS += -DGBA_AUTOSTART -DGBA_PROFILE
 profile: clean $(TARGET).gba
+
+# Igual que "profile" pero entrando por el ultimo archivo, donde el mapa es de
+# 48x48 en vez de 28x28. Es el peor caso, y sin el las cifras describen el mejor.
+profile-maxfloor: CXXFLAGS += -DGBA_AUTOSTART -DGBA_PROFILE -DGBA_PROFILE_FLOOR
+profile-maxfloor: clean $(TARGET).gba
 
 $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
