@@ -51,6 +51,13 @@ constexpr fx SIDE_LIGHT = fxFloat(0.7f);
 // abajo de la pantalla; mas alla de estas, todas caen sobre la misma fila.
 constexpr int GRID_STEPS = 20;
 
+// Escribir dos pixeles de una vez pide alcanzar un array de uint8_t con un
+// lvalue de 16 bits, y eso es UB por aliasing estricto. may_alias es la forma
+// que GCC documenta para pedirlo sin mentirle al optimizador. std::memcpy, que
+// seria la alternativa portable, NO se convirtio en un strh con este toolchain:
+// el bucle de texels se fue de 130.976 a 557.592 ciclos.
+typedef uint16_t u16_alias __attribute__((may_alias));
+
 // Ancho maximo de pantalla soportado. Solo dimensiona el z-buffer; en GBA
 // bastan 240 y el array baja a 960 bytes.
 // ponytail: array fijo en vez de reservar por frame, que en GBA no hay heap
@@ -133,16 +140,34 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
     PROF_ADD(g_bgCycles); }
 #endif
 
+    // Un rayo cada RAY_STEP columnas. En los 240 pixeles de la consola se traza
+    // la mitad y cada resultado pinta dos columnas: el DDA y toda la
+    // preparacion por columna --el reciproco de la altura, la tabla de colores,
+    // el espejado de la cara-- se pagan una vez en vez de dos. El coste es
+    // grano horizontal del doble, que es lo que hacian los raycasters de
+    // consola de la epoca.
+    //
+    // Se decide por el ANCHO y no con un #ifdef de plataforma a proposito: las
+    // pruebas de frames.ref renderizan a 240x160, que es la resolucion de la
+    // consola, y existen justamente para vigilar lo que la consola dibuja. Con
+    // un #ifdef dejarian de describirla. La ventana de escritorio, a 900, sigue
+    // trazando un rayo por columna.
+    const int rayStep = (w <= 320) ? 2 : 1;
+
     // cameraX barre [-1, 1) de a pasos iguales. Incremental para no pagar una
     // division por columna: la unica que queda es la de la altura.
-    const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(w));
+    const fx cameraStep = fxDiv(2 * FX_ONE, fxInt(w)) * rayStep;
     fx cameraX = -FX_ONE;
 
     // TEX_SIZE/h es constante, asi que el avance en textura sale de una
     // multiplicacion por perpDist en vez de dividir entre la altura proyectada.
     const fx texPerDist = fxDiv(fxInt(TEX_SIZE), fxInt(h));
 
-    for (int x = 0; x < w; ++x, cameraX += cameraStep) {
+    for (int x = 0; x < w; x += rayStep, cameraX += cameraStep) {
+        // Las columnas que cubre este rayo. La ultima puede quedar corta si w
+        // no es multiplo de rayStep.
+        const int span = std::min(rayStep, w - x);
+
         fx rayX = cam.dirX + fxMul(cam.planeX, cameraX);
         fx rayY = cam.dirY + fxMul(cam.planeY, cameraX);
 
@@ -202,15 +227,37 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         // max(0,...), bottom de un min(h,...) y x es el indice del bucle de
         // columnas. Avanzar el destino de fila en fila es una suma.
         uint8_t* dst = fb.pixels() + size_t(top) * size_t(w) + size_t(x);
-        for (int y = top; y < bottom; ++y, texPos += step, dst += w) {
-            int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
-            *dst = colBase[col[texY * TEX_SIZE]];
+        // El caso de dos columnas sale del bucle: meter un for interno de
+        // longitud variable aqui costo mas que todo lo que ahorraba el medio
+        // rayo -- el bucle de texels paso de 267.756 a 682.040 ciclos.
+        //
+        // Las dos columnas se escriben como un halfword. La direccion es par
+        // (el ancho es 240, x avanza de dos en dos y el buffer esta alineado),
+        // y el bus de EWRAM es de 16 bits: un strh cuesta un acceso donde dos
+        // strb costaban dos.
+        if (span == 2) {
+            for (int y = top; y < bottom; ++y, texPos += step, dst += w) {
+                int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
+                const uint8_t c = colBase[col[texY * TEX_SIZE]];
+                *reinterpret_cast<u16_alias*>(dst) =
+                    uint16_t(uint16_t(c) | uint16_t(c) << 8);
+            }
+        } else {
+            for (int y = top; y < bottom; ++y, texPos += step, dst += w) {
+                int texY = fxFloorInt(texPos) & (TEX_SIZE - 1);
+                *dst = colBase[col[texY * TEX_SIZE]];
+            }
         }
 #ifdef GBA_PROFILE
         PROF_ADD(g_texCycles); }
 #endif
 
-        if (x < MAX_SCREEN_W) g_wallDist[x] = hit.perpDist;
+        // El z-buffer se llena para TODAS las columnas del grupo: renderSprites
+        // lo consulta columna a columna y una sin rellenar dejaria pasar un
+        // sprite por delante de la pared.
+        for (int k = 0; k < span && x + k < MAX_SCREEN_W; ++k) {
+            g_wallDist[x + k] = hit.perpDist;
+        }
     }
     g_zbufWidth = std::min(w, MAX_SCREEN_W);
 }
