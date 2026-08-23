@@ -369,7 +369,21 @@ fallo:
 Sin argumento cada partida usa una seed nueva y la imprime al arrancar.
 
 Si en tu distribución los paquetes se llaman de otra forma: en Fedora son
-`gcc-c++ cmake SDL2-devel mgba`, y en Arch `base-devel cmake sdl2 mgba`.
+`gcc-c++ cmake SDL2-devel mgba`, y en Arch `base-devel cmake sdl2-compat mgba-sdl`
+(en instalaciones anteriores a 2024 el paquete de SDL2 todavía se llama `sdl2`).
+
+### Una nota para Arch
+
+`./install.sh` funciona, pero con una salvedad: **el toolchain de GBA no se
+instala solo**. devkitPro reparte su instalador automático en paquetes `.deb`,
+así que en Arch hay que añadir sus repositorios a `/etc/pacman.conf` a mano
+siguiendo [su wiki](https://devkitpro.org/wiki/devkitPro_pacman) y terminar con
+`pacman -S gba-dev`. El script detecta que estás en Arch, te dice esto mismo y
+sigue adelante compilando solo la versión de escritorio, sin romperse.
+
+Y para la mayoría de los casos da igual: **para jugar la ROM no hace falta
+compilarla**, está en las [Releases](https://github.com/eldmark/gba_raycaster/releases/latest).
+El toolchain solo hace falta si quieres tocar el código de la consola.
 
 ### Windows: instalando WSL
 

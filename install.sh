@@ -62,17 +62,36 @@ else
 fi
 
 [ "$PM" != none ] && step "Instalando dependencias del build de escritorio ($PM)"
+
+# El emulador se instala aparte y sin abortar si falla: su nombre de paquete
+# cambia entre distribuciones y no hace falta para COMPILAR nada. Con set -e
+# activo, meterlo en la misma linea que el resto tumbaria el script entero por
+# un paquete opcional.
+opcional() {
+    if ! "$@" >/dev/null 2>&1; then
+        warn "no pude instalar el emulador con: $*"
+        warn "instalalo a mano (mgba) o usa el que ya tengas."
+    fi
+}
+
 case "$PM" in
     none) ;;
     apt)
         $SUDO apt-get update
-        $SUDO apt-get install -y build-essential cmake libsdl2-dev git ffmpeg python3 wget mgba-sdl
+        $SUDO apt-get install -y build-essential cmake libsdl2-dev git ffmpeg python3 wget
+        opcional $SUDO apt-get install -y mgba-sdl
         ;;
     dnf)
-        $SUDO dnf install -y gcc-c++ cmake SDL2-devel git ffmpeg python3 wget mgba
+        $SUDO dnf install -y gcc-c++ cmake SDL2-devel git ffmpeg python3 wget
+        opcional $SUDO dnf install -y mgba
         ;;
     pacman)
-        $SUDO pacman -S --needed --noconfirm base-devel cmake sdl2 git ffmpeg python wget mgba-sdl
+        $SUDO pacman -S --needed --noconfirm base-devel cmake git ffmpeg python wget
+        # SDL2 cambio de paquete en Arch: hoy es sdl2-compat, y en instalaciones
+        # de antes de 2024 sigue siendo sdl2. Se prueban los dos.
+        $SUDO pacman -S --needed --noconfirm sdl2-compat 2>/dev/null \
+            || $SUDO pacman -S --needed --noconfirm sdl2
+        opcional $SUDO pacman -S --needed --noconfirm mgba-sdl
         ;;
 esac
 
@@ -87,6 +106,18 @@ if [ "$WANT_GBA" -eq 1 ]; then
     elif [ "$PM" = none ]; then
         warn "devkitARM no esta y --skip-deps me dice que no instale nada."
         warn "Instalalo o usa --no-gba."
+        WANT_GBA=0
+    elif [ "$PM" = pacman ]; then
+        # Arch ya usa pacman, asi que devkitPro se instala anadiendo sus
+        # repositorios al pacman del sistema en vez de con el instalador .deb.
+        # No lo automatizo porque toca /etc/pacman.conf y meterle mano a la
+        # configuracion de paquetes de una maquina ajena sin avisar es feo.
+        warn "En Arch, devkitPro se instala anadiendo sus repos a /etc/pacman.conf."
+        warn "Los pasos exactos estan en https://devkitpro.org/wiki/devkitPro_pacman"
+        warn "y terminan en 'pacman -S gba-dev'. Hazlo y vuelve a correr esto."
+        warn ""
+        warn "O saltatelo: la ROM ya compilada esta en las Releases del repositorio,"
+        warn "y para jugarla no hace falta el toolchain. Sigo solo con escritorio."
         WANT_GBA=0
     elif [ "$PM" != apt ]; then
         warn "El instalador de devkitPro solo trae paquetes .deb, y esta maquina no usa apt."
