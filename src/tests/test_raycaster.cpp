@@ -67,7 +67,8 @@ int main() {
     assert(ok);
     assert(maze.width() == 3 && maze.height() == 3);
 
-    // Port del test de laberinto/src/caster.rs: 20px con BLOCK_SIZE=40 = 0.5 celdas.
+    // El prototipo del que sale esto trabajaba en pixeles de mundo con celdas
+    // de 40 px, asi que sus 20 px son media celda aqui.
     checkAxis(maze, FX_ONE, 0, 0);
     checkAxis(maze, -FX_ONE, 0, 0);
     checkAxis(maze, 0, FX_ONE, 1);

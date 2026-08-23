@@ -45,13 +45,13 @@ La pantalla de título va a **29,9 fps**, que es el objetivo del port.
 
 Esa columna es **un frame**: el segundo tras cargar el primer archivo, con el
 jugador parado. Medida sobre 200 frames con el jugador girando y avanzando, y
-entrando también por el último archivo (mapa de 48×48 en vez de 28×28), la cifra
+entrando también por el último archivo (mapa de 44×44 en vez de 28×28), la cifra
 honesta es otra:
 
 | | mín | máx | media |
 | --- | ---: | ---: | ---: |
 | Archivo 1 | 18,8 fps | 12,0 fps | **13,5 fps** |
-| Archivo 6 | 14,9 fps | 10,0 fps | **12,4 fps** |
+| Archivo 5 | 14,9 fps | 10,0 fps | **12,4 fps** |
 
 Lo que crece con el piso es el minimapa (90.527 → 161.930 ciclos, el mapa es más
 grande) y los sprites (25.808 → 97.944, hay más guardianes despiertos). Un frame
@@ -141,6 +141,32 @@ Hay **dos juegos** en este repositorio, y se compilan por caminos distintos:
 
 Se puede compilar una sin la otra. Si solo quieres verlo funcionando, la de
 escritorio es la ruta corta.
+
+### La forma rápida: `./install.sh`
+
+En cualquier Linux con apt, dnf o pacman, un solo comando instala todo y compila
+las dos versiones:
+
+```sh
+git clone https://github.com/eldmark/gba_raycaster.git
+cd gba_raycaster
+./install.sh
+```
+
+Instala las dependencias, baja devkitPro para el cartucho, compila escritorio y
+GBA, pasa las pruebas y al terminar dice cómo lanzar cada versión. En Windows se
+ejecuta **dentro de WSL**, no en PowerShell (más abajo está cómo instalar WSL).
+
+```sh
+./install.sh --no-gba      # solo el build de escritorio, sin devkitPro
+./install.sh --skip-deps   # ya tienes todo instalado, solo compila
+./install.sh --no-build    # solo instala dependencias
+```
+
+Necesita `sudo` para los paquetes, así que te pedirá la contraseña. Si prefieres
+ver qué hace antes de darle permisos, es un archivo de 147 líneas y no esconde
+nada raro. El resto de esta sección es exactamente lo que el script hace, paso a
+paso y a mano.
 
 ### Requisitos
 

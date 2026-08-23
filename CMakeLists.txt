@@ -77,8 +77,6 @@ target_link_libraries(violethat PRIVATE game SDL2::SDL2)
 target_compile_definitions(violethat PRIVATE
     AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
 
-# el ejecutable busca maze.txt en el directorio de trabajo
-configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 
 # --- tests --------------------------------------------------------------------
 # Solo enlazan contra engine: si el test necesitara SDL, la separacion de capas

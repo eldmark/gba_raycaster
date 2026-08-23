@@ -65,8 +65,8 @@ bool Platform::init(int w, int h, const char* title) {
     }
     renderer_ = renderer;
 
-    // una sola textura para toda la vida del programa; el original en Rust
-    // creaba una por frame.
+    // una sola textura para toda la vida del programa: crear una por frame
+    // es una asignacion de GPU por cuadro para nada.
     SDL_Texture* texture =
         SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                           SDL_TEXTUREACCESS_STREAMING, w, h);

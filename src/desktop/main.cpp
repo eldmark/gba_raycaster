@@ -43,8 +43,10 @@ int main(int argc, char** argv) {
 
     Input input;
 
-    // el motor Rust movia por frame a 60 FPS fijos; aca se mide dt real y las
-    // velocidades estan en unidades por segundo. El primer frame usa 1/60.
+    // Se mide dt real y las velocidades estan en unidades por SEGUNDO, no por
+    // frame: con un frame fijo, el juego correria mas despacio en la consola
+    // que en el escritorio. El primer frame usa 1/60 porque todavia no hay
+    // nada que medir.
     fx dt = FX_ONE / 60;
     unsigned long long prevTicks = platform.ticksMs();
     unsigned long long fpsTicks = prevTicks;

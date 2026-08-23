@@ -39,9 +39,9 @@ volatile uint32_t g_mmEntCycles = 0;
 
 namespace {
 
-// El Rust oscurecia con (1 - d/500) sobre distancias en pixeles de mundo.
-// En celdas, 500 px / 40 px por celda = 12.5 celdas. Se guarda el reciproco
-// para que el sombreado sea una multiplicacion y no una division.
+// El sombreado se apaga linealmente hasta 12,5 celdas, que son los 500 px de
+// mundo del prototipo divididos por sus 40 px de celda. Se guarda el reciproco
+// para que sombrear sea una multiplicacion y no una division.
 constexpr fx INV_SHADE_RANGE = fxFloat(1.0f / 12.5f);
 constexpr fx MIN_LIGHT = fxFloat(0.25f);
 constexpr fx SIDE_LIGHT = fxFloat(0.7f);
@@ -179,9 +179,8 @@ void renderWorld(Framebuffer& fb, const Maze& maze, const Player& player) {
         PROF_ADD(g_rayCycles);
 #endif
 
-        // altura proyectada; equivale al BLOCK_SIZE*HEIGHT/d del Rust porque
-        // alla d estaba en pixeles de mundo y aca perpDist esta en celdas.
-        // La tercera division por columna, tambien por reciproco. perpDist
+        // Altura proyectada. La tercera division por columna, tambien por
+        // reciproco en vez de dividir de verdad. perpDist
         // esta acotada por abajo por kMinDist, asi que el producto no desborda.
         fx stakeHeight = fxMul(fxInt(h), fxRecip(hit.perpDist));
         fx exactTop = fxInt(half) - (stakeHeight >> 1);
@@ -472,7 +471,7 @@ void renderMinimap(Framebuffer& fb, const Maze& maze, const Player& player) {
         int hx = toMapX(player.x + fxMul(hit.perpDist, rayX));
         int hy = toMapY(player.y + fxMul(hit.perpDist, rayY));
 
-        // Linea con interpolacion. La version portada del Rust hacia dos
+        // Linea con interpolacion. La version de la que sale esto hacia dos
         // divisiones enteras POR PIXEL --(hx-px)*s/steps y su gemela-- y el
         // ARM7TDMI no tiene division: cada una es una rutina de software. Aqui
         // se paga un reciproco y dos multiplicaciones por RAYO, y el avance

@@ -2,7 +2,6 @@
 build/
 raycaster
 test_raycaster
-laberinto/target/
 install-devkitpro-pacman
 /docs
 # Audio horneado: se genera desde public/audio con tools/audio_bake.py
