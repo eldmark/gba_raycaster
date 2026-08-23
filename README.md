@@ -7,9 +7,16 @@ demasiado tiempo solos.
 
 ![Pasillo del archivo](public/screenshot.png)
 
+## Video: demo del último nivel
+
+### ▶ [https://youtu.be/6PK_r0pvREs](https://youtu.be/6PK_r0pvREs)
+
+El último archivo entero corriendo en la consola: el núcleo centinela, la cámara
+sellada y la extracción. Haz clic en la pantalla de título para abrirlo.
+
 |                                  |                          |
 | -------------------------------- | ------------------------ |
-| ![Guardián](public/guardian.png) | ![Título](public/title.png) |
+| ![Guardián](public/guardian.png) | [![Título](public/title.png)](https://youtu.be/6PK_r0pvREs) |
 
 Los seis materiales de pared y todos los sprites, tal como los construye
 `src/engine/Textures.h` — no hay archivos de imagen, se dibujan con código:
