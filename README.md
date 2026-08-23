@@ -488,6 +488,13 @@ rm -rf tools/audio_baked && make -f Makefile.gba audio
 
 Deja **`violethat.gba`** en la raíz, 2,1 MB.
 
+Una curiosidad: dos compilaciones del mismo commit **no dan un archivo idéntico
+byte a byte**. Difieren en unos 6.500 bytes, todos dentro de los arrays de
+audio, y siempre por ±1. Es el *dither* que ffmpeg aplica al bajar a 8 bits, que
+usa ruido distinto en cada corrida. Es deseable, porque reparte el error de
+cuantización en vez de dejarlo como distorsión, y no cambia nada de lo que se
+oye. El código y las texturas sí reproducen exactos.
+
 **3. Juégalo.**
 
 ```sh

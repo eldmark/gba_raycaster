@@ -29,8 +29,8 @@ SRC        := $(ENGINE_SRC) $(GAME_SRC) $(GBA_SRC)
 # que nada lo dijera.
 AUDIO_SYMS  := shot damage pickup level_up victory main_theme assault_theme
 AUDIO_DIR   := tools/audio_baked
-AUDIO_STAMP := $(AUDIO_DIR)/.baked
 AUDIO_SRC   := $(addprefix $(AUDIO_DIR)/,$(addsuffix .c,$(AUDIO_SYMS)))
+AUDIO_HDR   := $(AUDIO_DIR)/audio_assets.h
 
 OBJ        := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC)) \
               $(patsubst %.c,$(BUILD)/%.o,$(AUDIO_SRC))
@@ -110,19 +110,28 @@ $(BUILD)/%.o: %.cpp
 # Los assets horneados se compilan con g++ igual que todo lo demas (g++ trata
 # un .c como C++): son solo arrays de int8_t y una declaracion extern, y asi
 # el enlazado no necesita ningun extern "C" de por medio.
-$(BUILD)/%.o: %.c $(AUDIO_STAMP)
+$(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
 
-# Un sello y no los siete .c como objetivo: si no, make llamaria al script una
-# vez por archivo. Se rehornea si cambia el script o cualquier WAV de origen.
-$(AUDIO_STAMP): tools/audio_bake.py $(wildcard public/audio/*.wav)
+# Objetivo agrupado (&:): una sola corrida del script produce los siete .c y el
+# header, y make lo sabe. Con reglas normales creeria que hay que llamar al
+# script una vez por archivo. Se rehornea si cambia el script o algun WAV.
+$(AUDIO_SRC) $(AUDIO_HDR) &: tools/audio_bake.py $(wildcard public/audio/*.wav)
+	@mkdir -p $(AUDIO_DIR)
 	python3 tools/audio_bake.py > $(AUDIO_DIR)/report.json
-	@touch $@
 
-$(AUDIO_SRC): $(AUDIO_STAMP)
+# Prerrequisito de ORDEN (la barra) para TODOS los objetos, no solo para los
+# .c horneados: src/gba/Audio.cpp incluye audio_assets.h, que tambien lo genera
+# el script. Sin esta linea, en un clon recien clonado make compilaba Audio.cpp
+# antes de hornear nada y fallaba con "audio_assets.h: No such file".
+#
+# De orden y no normal para que rehornear no obligue a recompilar el motor
+# entero: si el header cambia de verdad es porque cambiaron los simbolos, y
+# entonces los .c cambian con el.
+$(OBJ): | $(AUDIO_SRC) $(AUDIO_HDR)
 
-audio: $(AUDIO_STAMP)
+audio: $(AUDIO_SRC) $(AUDIO_HDR)
 
 $(TARGET).elf: $(OBJ)
 	$(CXX) $(OBJ) $(LDFLAGS) -o $@
