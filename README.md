@@ -142,6 +142,20 @@ Hay **dos juegos** en este repositorio, y se compilan por caminos distintos:
 Se puede compilar una sin la otra. Si solo quieres verlo funcionando, la de
 escritorio es la ruta corta.
 
+### Ni compilar: descarga la ROM
+
+Si solo quieres jugarlo, no hace falta compilar nada. La ROM ya hecha está en
+las Releases:
+
+**[⬇ violethat.gba — Release v1.0.0](https://github.com/eldmark/gba_raycaster/releases/latest)**
+
+Ábrela con cualquier emulador de GBA ([mGBA](https://mgba.io/downloads.html)
+tiene versión para Windows, macOS y Linux) o cópiala a una flashcard. Los
+controles están en «Controles del cartucho», más abajo.
+
+Lo que sigue es para compilarlo desde el código, o para jugar la versión de
+escritorio, que no se distribuye compilada.
+
 ### La forma rápida: `./install.sh`
 
 En cualquier Linux con apt, dnf o pacman, un solo comando instala todo y compila
