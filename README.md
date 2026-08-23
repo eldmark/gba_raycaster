@@ -60,11 +60,9 @@ quieto en el primer archivo no ve ninguna de las dos cosas.
 El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
 **buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
 bucle de texels valió 2,5×, y por eso una sola línea configurando las esperas
-del bus del cartucho valió 1,67× sobre el frame entero.
-
-El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
-buscar en la ROM el código que lo escribía. IWRAM es el último escalón de eso
-mismo —bus de 32 bits, sin esperas— y ahí sí compensa ARM en vez de Thumb.
+del bus del cartucho valió 1,67× sobre el frame entero. IWRAM es el último
+escalón de eso mismo —bus de 32 bits, sin esperas— y ahí sí compensa ARM en vez
+de Thumb.
 
 Mover `Renderer.o` a IWRAM destapó un fallo latente: `Game` mide unos 22 KB
 (`Nav` son 16.384 bytes de campos de navegación y cola, `Maze` otros 4.096) y
