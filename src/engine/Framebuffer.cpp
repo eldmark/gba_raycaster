@@ -3,10 +3,13 @@
 #include <algorithm>
 
 Framebuffer::Framebuffer(int w, int h)
-    : width_(w), height_(h), buf_(size_t(w) * size_t(h), 0) {}
+    : width_(w), height_(h), owned_(size_t(w) * size_t(h), 0), buf_(owned_.data()) {}
+
+Framebuffer::Framebuffer(int w, int h, uint8_t* externalBuf)
+    : width_(w), height_(h), owned_(), buf_(externalBuf) {}
 
 void Framebuffer::clear(uint8_t color) {
-    std::fill(buf_.begin(), buf_.end(), color);
+    std::fill(buf_, buf_ + size_t(width_) * size_t(height_), color);
 }
 
 void Framebuffer::setPixel(int x, int y, uint8_t color) {
@@ -26,7 +29,7 @@ void Framebuffer::fillRect(int x, int y, int w, int h, uint8_t color) {
     if (x0 >= x1 || y0 >= y1) return;
 
     for (int row = y0; row < y1; ++row) {
-        auto begin = buf_.begin() + (size_t(row) * size_t(width_) + size_t(x0));
+        uint8_t* begin = buf_ + (size_t(row) * size_t(width_) + size_t(x0));
         std::fill(begin, begin + (x1 - x0), color);
     }
 }
@@ -36,6 +39,6 @@ void Framebuffer::shiftRow(int y, int amount) {
     amount %= width_;
     if (amount < 0) amount += width_;
     if (amount == 0) return;
-    auto begin = buf_.begin() + size_t(y) * size_t(width_);
+    uint8_t* begin = buf_ + size_t(y) * size_t(width_);
     std::rotate(begin, begin + amount, begin + width_);
 }

@@ -1,0 +1,7 @@
+%include <sync-none.specs>
+
+*link:
++ -T src/gba/gba_cart.ld --gc-sections --no-warn-rwx-segments
+
+*startfile:
+gba_crt0%O%s crti%O%s crtbegin%O%s

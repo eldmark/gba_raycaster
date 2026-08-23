@@ -382,7 +382,9 @@ void Game::update(const Input& input, fx dt) {
     const bool startPressed = input.start && !prevStart_;
     const bool leftPressed = input.left && !prevLeft_;
     const bool rightPressed = input.right && !prevRight_;
+    const bool pausePressed = input.pause && !prevPause_;
     prevStart_ = input.start;
+    prevPause_ = input.pause;
     prevLeft_ = input.left;
     prevRight_ = input.right;
 
@@ -405,7 +407,18 @@ void Game::update(const Input& input, fx dt) {
         case State::Cleared:
             if (startPressed) state_ = State::Title;
             return;
+        case State::Paused:
+            // Solo la tecla de continuar saca de aqui. El resto de la entrada
+            // se ignora: en pausa el jugador no dispara ni camina.
+            if (input.resume) state_ = State::Playing;
+            return;
         case State::Playing:
+            // La pausa se atiende antes de simular nada, para que el frame en
+            // que se pulsa no avance medio paso mas.
+            if (pausePressed) {
+                state_ = State::Paused;
+                return;
+            }
             break;
     }
 
@@ -427,13 +440,22 @@ void Game::update(const Input& input, fx dt) {
         fire();
     }
 
+    // El BFS ya no se hace de un tiron cada NAV_PERIOD frames: eso era un pico
+    // de ~157.000 ciclos volcado en un solo frame. beginRebuild() solo arranca
+    // el buffer de fondo; tick() reparte el trabajo real a lo largo de los
+    // frames siguientes y se llama todos los frames porque no hace nada si no
+    // hay una reconstruccion en curso (ver Nav.h).
     if (--navTimer_ <= 0) {
         navTimer_ = NAV_PERIOD;
-        nav_.rebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
+        nav_.beginRebuild(maze_, fxFloorInt(player_.x), fxFloorInt(player_.y));
     }
+    nav_.tick();
 
     int damage = 0;
     for (int i = 0; i < enemyCount_; ++i) {
+        // Un cadaver no necesita que se le copie el tuning ni se le mire la
+        // clase: updateEnemy lo iba a descartar en la primera linea.
+        if (!enemies_[i].alive()) continue;
         EnemyTuning current = tuning_;
         if (enemies_[i].kind == Enemy::Kind::Scout) {
             current.speed += fxFloat(0.55f);

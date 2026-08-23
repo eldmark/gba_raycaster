@@ -11,6 +11,28 @@ endif()
 
 add_compile_options(-Wall -Wextra)
 
+# --- assets horneados en tiempo de compilacion (Fase 2 del port) -------------
+# bake_assets es una herramienta de HOST: corre los mismos generadores de
+# Textures.h (fillVault, fillDoor, fillKey, ...) y vuelca el Assets resultante
+# como datos `const` en un header generado. En GBA `const` cae en ROM, no en
+# .bss, y el arranque no gasta ciclos rellenando texturas.
+# Depende del propio Textures.h: si cambia un generador o la paleta, el
+# comando se re-ejecuta solo, asi que el header horneado no puede
+# desincronizarse del codigo que lo produce.
+add_executable(bake_assets tools/bake_assets.cpp)
+target_include_directories(bake_assets PRIVATE src/engine)
+
+set(BAKED_ASSETS_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(BAKED_ASSETS_HEADER ${BAKED_ASSETS_DIR}/AssetsData.h)
+add_custom_command(
+    OUTPUT ${BAKED_ASSETS_HEADER}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${BAKED_ASSETS_DIR}
+    COMMAND bake_assets ${BAKED_ASSETS_HEADER}
+    DEPENDS bake_assets ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/Textures.h
+    COMMENT "Horneando texturas y paleta a ROM (bake_assets)"
+)
+add_custom_target(baked_assets DEPENDS ${BAKED_ASSETS_HEADER})
+
 # --- motor: portable, sin SDL ni nada de escritorio ---------------------------
 # Esta biblioteca es la que sobrevive intacta al port a Game Boy Advance.
 # Si alguna vez necesita enlazar contra SDL, algo se rompio.
@@ -23,7 +45,8 @@ add_library(engine STATIC
     src/engine/Framebuffer.cpp
     src/engine/Text.cpp
 )
-target_include_directories(engine PUBLIC src/engine)
+target_include_directories(engine PUBLIC src/engine ${BAKED_ASSETS_DIR})
+add_dependencies(engine baked_assets)
 
 # --- juego: mundo, entidades y reglas ----------------------------------------
 # Tampoco depende de la plataforma. Separada del motor porque el motor no debe
@@ -63,7 +86,7 @@ configure_file(maze.txt ${CMAKE_CURRENT_BINARY_DIR}/maze.txt COPYONLY)
 enable_testing()
 # el build Release define NDEBUG, que borraria todos los assert y dejaria los
 # tests pasando siempre. Se anula solo para estos targets.
-foreach(suite raycaster level game enemy screens)
+foreach(suite raycaster level game enemy screens frames)
     add_executable(test_${suite} src/tests/test_${suite}.cpp)
     target_link_libraries(test_${suite} PRIVATE game)
     target_compile_options(test_${suite} PRIVATE -UNDEBUG)
@@ -71,3 +94,19 @@ foreach(suite raycaster level game enemy screens)
              COMMAND test_${suite}
              WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endforeach()
+
+# La referencia de frames dorados vive en el repositorio, no en el directorio de
+# build: es un dato versionado, y su diff es la prueba de que una optimizacion
+# del port no cambio la imagen.
+target_compile_definitions(test_frames PRIVATE
+    FRAMES_REF="${CMAKE_CURRENT_SOURCE_DIR}/src/tests/frames.ref")
+
+# Prueba de equivalencia RGB del dedup de rampas de pared (ver el comentario
+# en tools/verify_wall_dedup.cpp): no es un test dorado de framebuffer, es la
+# prueba de que deduplicar indices no cambio ni un canal de color.
+add_executable(verify_wall_dedup tools/verify_wall_dedup.cpp)
+target_link_libraries(verify_wall_dedup PRIVATE engine)
+target_compile_options(verify_wall_dedup PRIVATE -UNDEBUG)
+add_test(NAME wall_dedup_rgb_equivalence
+         COMMAND verify_wall_dedup
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

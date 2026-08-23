@@ -1,0 +1,138 @@
+# Build de la GBA. Separado a proposito del CMakeLists.txt de escritorio: la
+# fase 3 del port (docs/port.md) pide un build aparte con devkitARM, no tocar
+# el de SDL. Este Makefile compila engine y game TAL CUAL -eso es la prueba
+# de que la separacion de capas del PROJECT.md (seccion 7) sirvio para algo-
+# y anade solo src/gba como capa de plataforma.
+
+DEVKITARM  ?= /opt/devkitpro/devkitARM
+LIBGBA     ?= /opt/devkitpro/libgba
+TOOLS      ?= /opt/devkitpro/tools/bin
+
+PREFIX  := $(DEVKITARM)/bin/arm-none-eabi-
+CXX     := $(PREFIX)g++
+OBJCOPY := $(PREFIX)objcopy
+GBAFIX  := $(TOOLS)/gbafix
+
+BUILD := build-gba
+TARGET := violethat
+
+ENGINE_SRC := $(wildcard src/engine/*.cpp)
+GAME_SRC   := $(wildcard src/game/*.cpp)
+GBA_SRC    := $(wildcard src/gba/*.cpp)
+SRC        := $(ENGINE_SRC) $(GAME_SRC) $(GBA_SRC)
+
+# Audio horneado. Los .c son 2 MB de PCM generados por tools/audio_bake.py a
+# partir de public/audio/*.wav, asi que no estan en el repositorio (ver
+# .gitignore) y este build los genera si faltan. La lista va escrita a mano y
+# no con $(wildcard): un wildcard sobre un directorio que todavia no existe se
+# evalua a vacio al leer el Makefile y el audio quedaria fuera de la ROM sin
+# que nada lo dijera.
+AUDIO_SYMS  := shot damage pickup level_up victory main_theme assault_theme
+AUDIO_DIR   := tools/audio_baked
+AUDIO_STAMP := $(AUDIO_DIR)/.baked
+AUDIO_SRC   := $(addprefix $(AUDIO_DIR)/,$(addsuffix .c,$(AUDIO_SYMS)))
+
+OBJ        := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC)) \
+              $(patsubst %.c,$(BUILD)/%.o,$(AUDIO_SRC))
+
+INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(AUDIO_DIR) -I$(LIBGBA)/include
+
+# -mthumb: el ARM7TDMI de la GBA ejecuta Thumb casi todo el tiempo (fase 6 del
+# plan pasa el bucle caliente a ARM aparte, con -marm por archivo). -specs=
+# src/gba/gba.specs es una copia local de gba.specs que apunta a
+# src/gba/gba_cart.ld en vez del gba_cart.ld de devkitARM: ese original manda
+# .bss/.data a IWRAM (32 KB) y no alcanza -Textures.h por si sola ya ocupa
+# 36.764 bytes en un static de assets() (fase 2 del plan, todavia no aterriza
+# en esta rama). La copia local manda esas mismas secciones a EWRAM (256 KB),
+# que sobra; ver el comentario en gba_cart.ld.
+#
+# _GNU_SOURCE: sin ella el math.h de newlib esconde M_PI bajo
+# __BSD_VISIBLE/__XSI_VISIBLE, que -std=c++17 (ISO estricto) desactiva.
+# Fixed.cpp usa M_PI y no es mio de tocar (Fase 1/2), asi que se arregla en el
+# toolchain en vez de en la fuente.
+CXXFLAGS := -mthumb-interwork -mcpu=arm7tdmi -mtune=arm7tdmi \
+            -specs=src/gba/gba.specs -O2 -fno-exceptions -fno-rtti -fno-threadsafe-statics \
+            -ffunction-sections -fdata-sections -D_GNU_SOURCE -DPLATFORM_GBA \
+            -std=c++17 -Wall -Wextra $(INCLUDES)
+LDFLAGS  := -mthumb -mthumb-interwork -specs=src/gba/gba.specs -L$(LIBGBA)/lib -lgba
+
+# Fase 6: el bucle caliente se ejecuta desde IWRAM, no desde la ROM.
+#
+# La medida de la fase 4 dejo claro que el coste dominante era buscar el codigo
+# en la ROM, no ejecutarlo: configurar las esperas del cartucho valio 1,67x
+# sobre el frame entero. IWRAM es el siguiente escalon de lo mismo -- bus de 32
+# bits, cero esperas, y ahi si compensa ARM en vez de Thumb, porque cada
+# instruccion de 32 bits se lee de una sola vez.
+#
+# El reparto entre secciones lo hace gba_cart.ld, que nombra estos objetos.
+# Aqui van las banderas:
+#   -marm         instrucciones de 32 bits, que en un bus de 32 bits salen
+#                 gratis y hacen mas por instruccion que las de Thumb.
+#   -mlong-calls  la ROM esta en 0x08000000 e IWRAM en 0x03000000: 80 MB de
+#                 distancia, muy por encima de los +-32 MB que alcanza un BL.
+#                 Sin esto el enlazado falla con "relocation truncated".
+# El juego de instrucciones va en su propia variable y no dentro de CXXFLAGS:
+# el target "profile" hace CXXFLAGS += -DGBA_PROFILE, y una sobreescritura
+# por objeto de CXXFLAGS se comeria esas definiciones sin decir nada. Separadas,
+# cada regla toca solo lo suyo.
+ARCHFLAGS := -mthumb
+
+IWRAM_OBJ := $(BUILD)/src/engine/Raycaster.o \
+             $(BUILD)/src/engine/Text.o \
+             $(BUILD)/src/engine/Renderer.o \
+             $(BUILD)/src/engine/Framebuffer.o \
+             $(BUILD)/src/gba/Audio.o
+$(IWRAM_OBJ): ARCHFLAGS := -marm -mlong-calls
+
+# En la otra direccion no hace falta bandera: el enlazador inserta veneers
+# (saltos puente) automaticamente cuando un BL desde la ROM no alcanza IWRAM.
+
+.PHONY: all clean profile profile-maxfloor audio
+
+all: $(TARGET).gba
+
+# Target de medicion (fase 3): compila con GBA_AUTOSTART, que sintetiza dos
+# pulsos de START para atravesar titulo/reglas sin mando -no hay xdotool ni
+# lua en este entorno para automatizar mgba-sdl headless. El .gba normal
+# (target "all") no lleva esta bandera y solo responde al KEYPAD real.
+profile: CXXFLAGS += -DGBA_AUTOSTART -DGBA_PROFILE
+profile: clean $(TARGET).gba
+
+# Igual que "profile" pero entrando por el ultimo archivo, donde el mapa es de
+# 48x48 en vez de 28x28. Es el peor caso, y sin el las cifras describen el mejor.
+profile-maxfloor: CXXFLAGS += -DGBA_AUTOSTART -DGBA_PROFILE -DGBA_PROFILE_FLOOR
+profile-maxfloor: clean $(TARGET).gba
+
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
+
+# Los assets horneados se compilan con g++ igual que todo lo demas (g++ trata
+# un .c como C++): son solo arrays de int8_t y una declaracion extern, y asi
+# el enlazado no necesita ningun extern "C" de por medio.
+$(BUILD)/%.o: %.c $(AUDIO_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
+
+# Un sello y no los siete .c como objetivo: si no, make llamaria al script una
+# vez por archivo. Se rehornea si cambia el script o cualquier WAV de origen.
+$(AUDIO_STAMP): tools/audio_bake.py $(wildcard public/audio/*.wav)
+	python3 tools/audio_bake.py > $(AUDIO_DIR)/report.json
+	@touch $@
+
+$(AUDIO_SRC): $(AUDIO_STAMP)
+
+audio: $(AUDIO_STAMP)
+
+$(TARGET).elf: $(OBJ)
+	$(CXX) $(OBJ) $(LDFLAGS) -o $@
+
+$(TARGET).gba: $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+	$(GBAFIX) $@
+
+# No se borra tools/audio_baked: rehornear son ~40 s de ffmpeg y los targets
+# "profile" dependen de clean, asi que se pagaria en cada medicion. Para
+# regenerarlo de cero: rm -rf tools/audio_baked && make -f Makefile.gba audio
+clean:
+	rm -rf $(BUILD) $(TARGET).elf $(TARGET).gba

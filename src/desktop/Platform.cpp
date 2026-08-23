@@ -138,6 +138,10 @@ bool Platform::pollInput(Input& input) {
     input.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LCTRL] ||
                  (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT));
     input.start = keys[SDL_SCANCODE_RETURN];
+    // P pausa, C continua. Ver el comentario del mismo par en src/gba: son dos
+    // teclas a proposito, no una que alterna.
+    input.pause = keys[SDL_SCANCODE_P];
+    input.resume = keys[SDL_SCANCODE_C];
 
     input.turn = mouseDX * MOUSE_SENS;
 
@@ -149,26 +153,38 @@ bool Platform::pollInput(Input& input) {
 
         // El D-PAD se suma a las flechas; los menus se manejan con el mismo
         // left/right por flanco que el teclado.
+        // En el mando el par es el mismo que en la consola: SELECT/BACK
+        // congela y START reanuda.
+        input.pause = input.pause || held(SDL_CONTROLLER_BUTTON_BACK);
+        input.resume = input.resume || held(SDL_CONTROLLER_BUTTON_START);
+
         input.left = input.left || held(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
         input.right = input.right || held(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
         input.fwd = input.fwd || held(SDL_CONTROLLER_BUTTON_DPAD_UP);
         input.back = input.back || held(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
-        input.fire = input.fire || held(SDL_CONTROLLER_BUTTON_A) ||
-                     SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) >
-                         DEADZONE;
+        // Solo el boton X dispara. El gatillo se quita a proposito: con un
+        // unico stick el pulgar derecho queda libre, y dejar dos botones vivos
+        // para lo mismo hace que un roce del gatillo dispare sin querer.
+        input.fire = input.fire || held(SDL_CONTROLLER_BUTTON_X);
         input.start = input.start || held(SDL_CONTROLLER_BUTTON_START);
 
-        // Giro: stick derecho, y el izquierdo tambien para un mando de un solo
-        // pulgar. A diferencia del raton esto es una velocidad, asi que va
-        // multiplicado por el tiempo del frame.
-        float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_RIGHTX));
-        if (turn == 0.0f) {
-            turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
-        }
+        // Todo el movimiento vive en el stick izquierdo, como en el D-PAD de la
+        // consola: X gira la camara, Y camina. El derecho no se lee.
+        //
+        // Girar y avanzar en el mismo pulgar es lo que hace que empujar en
+        // diagonal rote la vista mientras se avanza. Es un mapeo pedido a
+        // proposito, no un descuido: da el mismo control con una sola mano que
+        // tendra la version de GBA.
+        //
+        // A diferencia del raton esto es una velocidad, asi que va multiplicado
+        // por el tiempo del frame.
+        const float turn = axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX));
         input.turn += int32_t(turn * STICK_TURN_PER_SEC * frameSeconds);
 
-        // Avance analogico. El eje Y de SDL crece hacia abajo, asi que empujar
-        // el stick hacia adelante da negativo y hay que invertirlo.
+        // El eje Y de SDL crece hacia abajo, asi que empujar el stick hacia
+        // adelante da negativo y hay que invertirlo. El avance sale siempre en
+        // la direccion de la camara: updatePlayer lo proyecta sobre player.a,
+        // asi que girar cambia hacia donde se camina.
         const float thrust =
             -axis(SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY));
         input.thrust = fx(thrust * float(FX_ONE));

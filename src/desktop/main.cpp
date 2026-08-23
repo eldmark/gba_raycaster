@@ -49,6 +49,9 @@ int main(int argc, char** argv) {
     unsigned long long prevTicks = platform.ticksMs();
     unsigned long long fpsTicks = prevTicks;
     int frames = 0;
+    // Ultimo valor medido, para poder dibujarlo en pantalla ademas de en el
+    // titulo de la ventana: el titulo no se ve en una captura ni en un video.
+    int shownFps = 0;
     Game::State shownState = Game::State::Title;
 
     while (platform.pollInput(input)) {
@@ -78,7 +81,7 @@ int main(int argc, char** argv) {
                            ? Audio::Assault
                            : Audio::Menu);
 
-        if (game.state() == Game::State::Playing) {
+        if (game.inWorld()) {
             renderWorld(fb, game.maze(), game.player());
 
             // los sprites van despues de las paredes: usan el z-buffer que
@@ -98,6 +101,7 @@ int main(int argc, char** argv) {
         } else {
             drawScreen(fb, game);
         }
+        drawFps(fb, shownFps);
         platform.present(fb);
 
         if (game.state() != shownState) {
@@ -121,6 +125,7 @@ int main(int argc, char** argv) {
         if (++frames >= 30) {
             unsigned long long elapsed = now - fpsTicks;
             if (elapsed > 0) {
+                shownFps = int(frames * 1000ull / elapsed);
                 char title[96];
                 std::snprintf(title, sizeof(title), "VIOLET HAT - %.0f FPS",
                               frames * 1000.0f / float(elapsed));
