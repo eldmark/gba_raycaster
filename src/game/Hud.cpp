@@ -234,10 +234,13 @@ void drawFps(Framebuffer &fb, int fps)
     for (const char *t = "FPS "; *t; ++t)
         buf[i++] = *t;
     intToText(buf + i, fps);
-    // Arriba a la izquierda, sin panel: el contador es instrumental, no parte
-    // de la ficcion del HUD, y un fondo mas seria un rectangulo mas que tapa
-    // mundo. El color de acento se lee sobre cualquier pared.
-    drawText(fb, 2 * s, 2 * s, buf, PAL_UI_ACCENT, s);
+    // Arriba a la derecha, en la esquina que dejo libre el panel de
+    // estadisticas al bajarse. Sin panel de fondo: el contador es
+    // instrumental, no parte de la ficcion del HUD, y un rectangulo mas seria
+    // un trozo mas de mundo tapado. El color de acento se lee sobre cualquier
+    // pared.
+    drawText(fb, fb.width() - textWidth(buf, s) - 2 * s, 2 * s, buf,
+             PAL_UI_ACCENT, s);
 }
 
 namespace

@@ -181,6 +181,18 @@ Los controles de consola son el D-PAD para andar y girar, **A** para disparar,
 **SELECT** para pausar, y **START** para continuar y para empezar una run
 nueva.
 
+Ojo con las teclas al probarlo en un emulador: ahi no se pulsa **P** ni **C**,
+que son del build de escritorio. Se pulsa el boton de GBA, y el emulador decide
+que tecla del teclado es cada boton. Con el mapeo por defecto de mGBA:
+
+| Boton de GBA | Tecla en mGBA | En el juego                |
+| ------------ | ------------- | -------------------------- |
+| D-PAD        | flechas       | Andar y girar              |
+| A            | X             | Disparar                   |
+| B            | Z             | —                          |
+| SELECT       | **Retroceso** | **Pausar**                 |
+| START        | **Enter**     | **Reanudar** / continuar   |
+
 `make -f Makefile.gba profile` compila una segunda ROM, distinta: pulsa START
 sola al arrancar y pinta en pantalla el coste en ciclos del frame de título y
 del frame jugando, además de volcarlo al log de depuración de mGBA
@@ -211,7 +223,8 @@ fps de la consola un pulso llega a leerse en dos frames seguidos, y con un solo
 botón eso entra y sale de la pausa en el mismo toque. En pausa el mundo se
 sigue viendo —no se limpia la pantalla— para no perder de vista dónde se estaba.
 
-El contador de FPS se dibuja arriba a la izquierda en las dos plataformas. En
+El contador de FPS se dibuja arriba a la derecha en las dos plataformas, en la
+esquina que dejo libre el panel de estadisticas al bajarse. En
 GBA promedia ocho frames de ciclos crudos: uno solo salta entre 12 y 18 según lo
 que haya delante y el número sería ilegible de tan inquieto.
 
