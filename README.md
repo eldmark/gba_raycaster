@@ -19,98 +19,20 @@ sellada y la extracción. Haz clic en la pantalla de título para abrirlo.
 | ![Guardián](public/guardian.png) | [![Título](public/title.png)](https://youtu.be/6PK_r0pvREs) |
 
 Los seis materiales de pared y todos los sprites, tal como los construye
-`src/engine/Textures.h` — no hay archivos de imagen, se dibujan con código:
+`src/engine/Textures.h`. No hay archivos de imagen: se dibujan con código.
 
 ![Materiales y sprites](public/materials.png)
 
 ## Estado
 
-Corre en Linux y **arranca en Game Boy Advance**: `make -f Makefile.gba` deja un
-cartucho de 2,1 MB —dos de esos megas son el audio horneado— que se carga en un
-emulador o en una flashcard. No queda
-aritmética de coma flotante en el camino de render y el framebuffer usa el mismo
-formato indexado de 8 bits que el modo 4 de la consola.
+Corre en Linux y **arranca en Game Boy Advance**. `make -f Makefile.gba` deja un
+cartucho de 2,1 MB (dos de esos megas son el audio horneado) que se carga en un
+emulador o en una flashcard. No queda aritmética de coma flotante en el camino
+de render, y el framebuffer usa el mismo formato indexado de 8 bits que el modo
+4 de la consola.
 
-Lo que le falta a esa ROM está medido, no supuesto. Un frame jugando arrancó
-costando 6.460.017 ciclos contra los 559.333 que caben en 1/30 de segundo, o
-sea 2,6 fps. Va por 2.527.707 —**6,6 fps**— después de tres cambios, cada uno
-medido antes y después:
-
-| Cambio | Frame jugando | |
-| --- | ---: | --- |
-| Punto de partida | 6.460.017 | 2,6 fps |
-| Volcado a VRAM con DMA3 en vez de la CPU | 5.617.317 | 3,0 fps |
-| Texels de pared por puntero en vez de `setPixel` | 4.212.843 | 4,0 fps |
-| `WAITCNT` = 0x4317 (esperas del cartucho + prefetch) | 2.527.707 | 6,6 fps |
-| DDA, texturas y fuente a IWRAM compilados en ARM | 1.965.916 | 8,5 fps |
-| Minimapa reescalado, celdas y rayos sin llamadas ni divisiones | 1.685.017 | 10,0 fps |
-| `Framebuffer` a IWRAM | 1.404.127 | 12,0 fps |
-| Texto por puntero en vez de un `fillRect` por pixel | 1.404.125 | 12,0 fps |
-| Un rayo cada dos columnas en la consola | **1.123.221** | **14,9 fps** |
-
-La pantalla de título va a **29,9 fps**, que es el objetivo del port.
-
-Esa columna es **un frame**: el segundo tras cargar el primer archivo, con el
-jugador parado. Medida sobre 200 frames con el jugador girando y avanzando, y
-entrando también por el último archivo (mapa de 44×44 en vez de 28×28), la cifra
-honesta es otra:
-
-| | mín | máx | media |
-| --- | ---: | ---: | ---: |
-| Archivo 1 | 18,8 fps | 12,0 fps | **13,5 fps** |
-| Archivo 5 | 14,9 fps | 10,0 fps | **12,4 fps** |
-
-Lo que crece con el piso es el minimapa (90.527 → 161.930 ciclos, el mapa es más
-grande) y los sprites (25.808 → 97.944, hay más guardianes despiertos). Un frame
-quieto en el primer archivo no ve ninguna de las dos cosas.
-
-El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
-**buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
-bucle de texels valió 2,5×, y por eso una sola línea configurando las esperas
-del bus del cartucho valió 1,67× sobre el frame entero. IWRAM es el último
-escalón de eso mismo —bus de 32 bits, sin esperas— y ahí sí compensa ARM en vez
-de Thumb.
-
-Mover `Renderer.o` a IWRAM destapó un fallo latente: `Game` mide unos 22 KB
-(`Nav` son 16.384 bytes de campos de navegación y cola, `Maze` otros 4.096) y
-era una variable local de `main`. La pila de la consola son 32 KB de IWRAM, los
-mismos que ahora comparte con el código, así que el puntero de pila bajaba por
-debajo del código y lo machacaba. Como `static` vive en `.bss`, que este linker
-script manda a EWRAM.
-
-`present()` espera al vblank, así que **cada frame cuesta un múltiplo entero de
-los 280.896 ciclos de un barrido de pantalla**. Los ahorros no se ven en los fps
-hasta que cruzan uno de esos escalones: el frame jugando ha bajado de nueve
-barridos a cinco, y el de título de tres a dos.
-
-Tres veces el sospechoso obvio resultó no serlo, y medir antes de tocar fue lo
-que lo evitó. En el minimapa la factura no estaba en el abanico de 24 rayos
-sino en las celdas de muro, con una llamada a `fillRect` por celda. Y mover
-`Hud.o` a IWRAM valió un 0,9%: lo caro no era su código sino el `Framebuffer`
-que llamaba, que seguía en ROM. Y el HUD no necesitó irse a una capa de
-hardware —imposible en modo 4, que no tiene capas de tiles— porque `drawText`
-pedía un `fillRect` entero por cada pixel encendido de cada glifo.
-
-Y dos cambios que empeoraron el frame antes de mejorarlo, los dos en el bucle
-de texels: un `for` interno de longitud variable lo llevó de 267.756 a 682.040
-ciclos, y un `std::memcpy` de dos bytes —que debería compilar a un `strh`— a
-557.592. La versión buena escribe los dos píxeles como un halfword con un
-`typedef may_alias`.
-
-El audio de consola cuesta unos 11.000 ciclos por frame de media y no movió la
-media de fps de forma apreciable —12,5 antes, 12,4 después—, pero para llegar
-ahí hubo que pagar dos cosas. La primera versión costaba 195.000 ciclos por
-frame: el mezclador corre en un ISR de VBlank, o sea cuatro o cinco veces por
-cada frame del juego, y desde la ROM eso salía más caro que dibujar todos los
-sprites. Se arregló igual que todo lo demás de este port —`Audio.o` a IWRAM
-compilado en ARM— más sacar del bucle por muestra las comprobaciones que no
-cambian dentro de él.
-
-Lo segundo fue un registro mal escrito: `REG_DMA2CNT_H` estaba puesto en
-`0x0CE`, que es la mitad alta de `DMA2DAD` y no el control del canal. El
-cartucho sonaba con música y sin ningún efecto. Los registros de DMA van de doce
-en doce bytes desde `0x0BC`, así que el control del segundo canal está en
-`0x0D2`.
+Jugando va a **12-15 fps** y la pantalla de título a **29,9**, que era el
+objetivo del port. Empezó a 2,6.
 
 MVP (sección 29 del documento de diseño):
 
@@ -120,22 +42,230 @@ MVP (sección 29 del documento de diseño):
 - [x] Generación procedural
 - [x] Seed reproducible
 - [x] Jugador con integridad (HP)
-- [x] Un enemigo — el WARDEN
-- [x] Un arma — PACKET GUN
+- [x] Un enemigo, el WARDEN
+- [x] Un arma, la PACKET GUN
 - [x] Disparo hitscan
 - [x] Los guardianes reciben daño
 - [x] El jugador recibe daño
 - [x] Salida y cambio de piso
 - [x] Fin de run y run nueva
 - [x] HUD, pantallas de bienvenida y reglas, marcador final
-- [x] Objetos de sistema — RAM, PATCH, CACHE
+- [x] Objetos de sistema: RAM, PATCH y CACHE
 - [x] Cámara sellada con llave de archivo
-- [x] Jefe final — NUCLEO CENTINELA
+- [x] Jefe final, el NUCLEO CENTINELA
 - [x] Música y efectos de sonido
 - [x] Ratón, mando y selección de archivo
-- [x] Port a Game Boy Advance — se juega a 12-15 fps, con música y efectos
+- [x] Port a Game Boy Advance, jugable a 12-15 fps y con sonido
 
-## Cómo jugar — tutorial completo
+## Cómo se construyó
+
+Esto no empezó siendo un motor. Empezó siendo un pixel.
+
+### Un pixel
+
+La primera pieza fue el `Framebuffer`: un array de bytes del tamaño de la
+pantalla, y una función para pintar uno.
+
+```cpp
+void setPixel(int x, int y, uint8_t color);
+```
+
+No había nada más. Pero con eso ya se puede construir todo lo demás sin volver a
+tocar el hardware: un bucle de `setPixel` es una línea, dos bucles anidados son
+un rectángulo, y `fillRect` sale de ahí. Todo lo que dibuja este juego, hasta el
+último glifo de la fuente, acaba llamando a esas dos funciones.
+
+### Un mapa visto desde arriba
+
+Con rectángulos ya se puede dibujar un laberinto. `Maze::load` lee un archivo de
+texto donde cada carácter es una celda, y pintando un cuadrito por cada celda
+que sea pared sale el mapa completo, en 2D y desde arriba. Ese fue el primer
+render de verdad: sin perspectiva, sin cámara, un plano.
+
+Ahí también aparecieron el jugador (una posición y un ángulo) y las colisiones,
+que a esa altura eran comprobar si la celda a la que quieres entrar es pared.
+
+### Un rayo
+
+El salto interesante es el siguiente. Desde la posición del jugador, y en la
+dirección a la que mira, avanzas en pasos pequeños hasta chocar con una pared.
+Pintas el camino recorrido y tienes un rayo dibujado sobre el mapa 2D.
+
+Eso, repetido en abanico para cubrir el campo de visión, dibuja lo que el
+jugador «ve», todavía en planta. **Esa vista sigue en el juego**: es el minimapa
+de la esquina. Los rayos que salen del punto del jugador se calculan con la
+misma función `castRay` que alimenta la vista en primera persona, solo que el
+minimapa dibuja 24 y no uno por columna, porque para ver hacia dónde miras
+sobran.
+
+### De un rayo a una columna
+
+Lo único que hace falta para pasar a 3D es darse cuenta de que **la distancia a
+la que un rayo choca es la altura de la pared en pantalla**. Cerca, alto. Lejos,
+bajito. La proyección entera es una división:
+
+```cpp
+fx stakeHeight = fxMul(fxInt(h), fxRecip(hit.perpDist));
+```
+
+Se lanza un rayo por columna de pantalla, se calcula esa altura, y se pinta una
+raya vertical centrada. Doscientas cuarenta rayas verticales y eso es la vista
+en primera persona. No hay más. (En la consola acabó siendo un rayo cada dos
+columnas, por razones que están más abajo.)
+
+Dos detalles que no son obvios y que costaron:
+
+**El ojo de pez.** Si usas la distancia real del rayo, las paredes se curvan
+hacia los bordes de la pantalla, porque los rayos de los extremos recorren más
+camino hasta la misma pared plana. Hay que quedarse con la distancia
+*perpendicular* al plano de la cámara, no con la del rayo. La prueba
+`raycaster` existe justo para eso: mira de frente a una pared plana y comprueba
+que todas las columnas devuelven la misma distancia.
+
+**Avanzar a pasos pequeños es carísimo y además impreciso.** La forma buena es
+DDA: en vez de avanzar un poco y preguntar, calculas de una vez cuánto falta
+para cruzar la siguiente línea de la rejilla, saltas justo a ella y compruebas
+esa celda. Das un paso por celda cruzada, no cien pasos por celda.
+
+### Y luego texturas
+
+Una columna de color plano ya es un pasillo, pero es un pasillo aburrido. Para
+texturarla hace falta saber *en qué punto exacto* de la pared pegó el rayo: eso
+da la coordenada horizontal de la textura, y la vertical sale de recorrer la
+columna de arriba abajo. Cada pixel de la raya vertical lee un texel.
+
+Las seis texturas de pared y todos los sprites no son archivos de imagen. Los
+dibuja código en `src/engine/Textures.h`, y en el build de GBA se hornean a
+datos constantes para que vivan en la ROM y no haya que generarlos al arrancar.
+
+El sombreado por distancia también está horneado, pero en la paleta: cada color
+base aparece ya multiplicado por seis niveles de luz, así que oscurecer un pixel
+es sumarle un entero al índice en vez de escalar tres componentes de color.
+
+## Cómo se hizo rápido
+
+Todo lo anterior corría de sobra en un PC. En la Game Boy Advance, el primer
+frame jugable costó **6.460.017 ciclos**. En un treintavo de segundo caben
+559.333. O sea 2,6 fps.
+
+Lo que sigue es el camino de ahí hasta aquí, y cada fila está medida en el
+emulador antes y después del cambio, nunca estimada:
+
+| Cambio | Ciclos por frame | Equivale a |
+| --- | ---: | --- |
+| Punto de partida | 6.460.017 | 2,6 fps |
+| Volcado a VRAM con DMA3 en vez de la CPU | 5.617.317 | 3,0 fps |
+| Texels de pared por puntero en vez de `setPixel` | 4.212.843 | 4,0 fps |
+| `WAITCNT` = 0x4317 (esperas del cartucho y prefetch) | 2.527.707 | 6,6 fps |
+| DDA, texturas y fuente a IWRAM compilados en ARM | 1.965.916 | 8,5 fps |
+| Minimapa reescalado, celdas y rayos sin llamadas ni divisiones | 1.685.017 | 10,0 fps |
+| `Framebuffer` a IWRAM | 1.404.127 | 12,0 fps |
+| Texto por puntero en vez de un `fillRect` por pixel | 1.404.125 | 12,0 fps |
+| Un rayo cada dos columnas en la consola | **1.123.221** | **14,9 fps** |
+
+### La cifra honesta
+
+Esa columna es **un frame**: el segundo después de cargar el primer archivo, con
+el jugador parado. Medido sobre 200 frames con el jugador girando y avanzando, y
+entrando también por el último archivo (mapa de 44×44 en vez de 28×28), sale
+otra cosa:
+
+| Dónde | mín | máx | media |
+| --- | ---: | ---: | ---: |
+| Archivo 1 | 18,8 fps | 12,0 fps | **13,5 fps** |
+| Archivo 5 | 14,9 fps | 10,0 fps | **12,4 fps** |
+
+Lo que crece con el piso es el minimapa (de 90.527 a 161.930 ciclos, porque el
+mapa es más grande) y los sprites (de 25.808 a 97.944, porque hay más guardianes
+despiertos). Un frame quieto en el primer archivo no ve ninguna de las dos cosas.
+
+### Lo que ordenó todo lo demás
+
+El coste dominante nunca fue el pixel. Fue **buscar en la ROM el código que lo
+escribía**.
+
+La ROM de un cartucho es lenta y arranca con cuatro ciclos de espera por acceso.
+Como todo el código se ejecuta desde ahí, eso es un impuesto sobre cada
+instrucción. Por eso quitar una llamada a función del bucle de texels valió 2,5
+veces, y por eso una sola línea configurando las esperas del bus valió 1,67
+veces sobre el frame entero:
+
+```cpp
+*reinterpret_cast<volatile uint16_t*>(0x4000204) = 0x4317;
+```
+
+IWRAM es el último escalón de lo mismo: 32 KB de memoria interna con bus de 32
+bits y cero esperas. Mover ahí el código caliente, y compilarlo en ARM en vez de
+Thumb ya que cada instrucción de 32 bits se lee de una sola vez, fue el otro
+salto grande.
+
+### Los escalones invisibles
+
+`present()` espera al vblank, así que **cada frame cuesta un múltiplo entero de
+los 280.896 ciclos que dura un barrido de pantalla**. Un ahorro no se ve en los
+fps hasta que cruza uno de esos escalones. El frame jugando bajó de nueve
+barridos a cinco, y el de título de tres a dos.
+
+Esto también explica por qué a veces optimizar parece no servir de nada y otras
+veces una mejora pequeña dispara el contador.
+
+### Tres veces el sospechoso obvio no era el culpable
+
+Y medir antes de tocar fue lo único que lo evitó.
+
+En el minimapa parecía que la factura estaba en el abanico de 24 rayos. Estaba
+en las celdas de muro, que hacían una llamada a `fillRect` por celda.
+
+Mover `Hud.o` a IWRAM valió un 0,9%. Lo caro no era el código del HUD sino el
+`Framebuffer` al que llamaba, que seguía en la ROM. Moviendo ese, que ocupa
+1 KB en vez de 7, el frame mejoró casi al doble.
+
+Y el HUD no necesitó irse a una capa de hardware, cosa que además es imposible
+en modo 4 porque no tiene capas de tiles. El problema real era que `drawText`
+pedía un `fillRect` entero por cada pixel encendido de cada glifo.
+
+### Dos cambios que lo empeoraron antes de mejorarlo
+
+Los dos en el bucle de texels, que es el sitio más sensible del motor.
+
+Envolver la escritura en un `for` interno de longitud variable lo llevó de
+267.756 a 682.040 ciclos. Y un `std::memcpy` de dos bytes, que en teoría debería
+compilar a un `strh`, lo dejó en 557.592 porque con este toolchain no lo hace.
+La versión que funciona escribe los dos píxeles como un halfword usando un
+`typedef` con `may_alias`.
+
+### Un fallo latente que salió al mover código
+
+Mover `Renderer.o` a IWRAM hizo que el juego se colgara después de la pantalla
+de título. La causa no tenía nada que ver con IWRAM: `Game` mide unos 22 KB
+(`Nav` son 16.384 bytes de campos de navegación y cola, `Maze` otros 4.096) y
+era una variable local de `main`. La pila de la consola son 32 KB, los mismos
+que ahora compartía con el código, así que el puntero de pila bajaba por debajo
+del código y lo machacaba.
+
+Como `static` el objeto vive en `.bss`, que este linker script manda a EWRAM.
+El fallo estaba ahí desde el principio, con unos 10 KB de margen; mover código a
+IWRAM solo lo destapó.
+
+### El audio
+
+Cuesta unos 11.000 ciclos por frame de media y no movió el promedio de fps de
+forma apreciable: 12,5 antes, 12,4 después. Pero para llegar ahí hubo que pagar
+dos cosas.
+
+La primera versión costaba 195.000 ciclos por frame. El mezclador corre en una
+interrupción de VBlank, o sea cuatro o cinco veces por cada frame del juego, y
+desde la ROM salía más caro que dibujar todos los sprites. Se arregló igual que
+todo lo demás de este port, moviendo `Audio.o` a IWRAM compilado en ARM, más
+sacar del bucle por muestra las comprobaciones que no cambian dentro de él.
+
+La segunda fue un registro mal escrito. `REG_DMA2CNT_H` estaba puesto en
+`0x0CE`, que es la mitad alta de `DMA2DAD` y no el control del canal, así que el
+canal de efectos nunca se encendía: el cartucho sonaba con música y sin un solo
+disparo. Los registros de DMA van de doce en doce bytes desde `0x0BC`, o sea que
+el control del segundo canal está en `0x0D2`.
+
+## Cómo jugar, paso a paso
 
 Hay **dos juegos** en este repositorio, y se compilan por caminos distintos:
 
@@ -152,7 +282,7 @@ escritorio es la ruta corta.
 Si solo quieres jugarlo, no hace falta compilar nada. La ROM ya hecha está en
 las Releases:
 
-**[⬇ violethat.gba — Release v1.0.0](https://github.com/eldmark/gba_raycaster/releases/latest)**
+**[⬇ Descargar violethat.gba (Release v1.0.0)](https://github.com/eldmark/gba_raycaster/releases/latest)**
 
 Ábrela con cualquier emulador de GBA ([mGBA](https://mgba.io/downloads.html)
 tiene versión para Windows, macOS y Linux) o cópiala a una flashcard. Los
@@ -202,8 +332,6 @@ paso y a mano.
 No hay ninguna dependencia más: ni SDL2\_mixer, ni bibliotecas de mates, ni
 gestor de paquetes de C++. El motor no enlaza contra nada.
 
----
-
 ### Linux (Debian, Ubuntu, Mint…)
 
 **1. Instala lo básico y clona el repositorio.**
@@ -230,8 +358,9 @@ otra vez **Enter** para entrar.
 > fija al ejecutar `cmake -S . -B build`. Si mueves la carpeta del proyecto
 > después, vuelve a lanzar ese comando o el juego arrancará mudo.
 
-**3. Repite una partida concreta.** La misma seed reconstruye la run entera
-—mapa, salida, guardianes y objetos—, que es como se reproduce un fallo:
+**3. Repite una partida concreta.** La misma seed reconstruye la run entera,
+con su mapa, su salida, sus guardianes y sus objetos. Es como se reproduce un
+fallo:
 
 ```sh
 ./build/violethat 583291
@@ -241,8 +370,6 @@ Sin argumento cada partida usa una seed nueva y la imprime al arrancar.
 
 Si en tu distribución los paquetes se llaman de otra forma: en Fedora son
 `gcc-c++ cmake SDL2-devel mgba`, y en Arch `base-devel cmake sdl2 mgba`.
-
----
 
 ### Windows: instalando WSL
 
@@ -282,9 +409,9 @@ entre los dos sistemas.
 sonido. WSLg los conecta solo, sin servidor X ni configuración.
 
 **Lo que no:** un **mando USB** no llega a WSL. Los dispositivos USB necesitan
-`usbipd-win` y compartirlos a mano, y para este juego no compensa — el teclado y
-el ratón cubren todo. Si tienes mando, la ruta buena es la del apartado
-siguiente.
+`usbipd-win` y compartirlos a mano, y para este juego no compensa, porque el
+teclado y el ratón cubren todo. Si tienes mando, la ruta buena es la del
+apartado siguiente.
 
 **Si la ventana no aparece**, casi siempre es WSL sin actualizar. `wsl --update`
 desde PowerShell y `wsl --shutdown` para reiniciarlo. En un Windows 10 anterior
@@ -294,8 +421,8 @@ Windows es menos trabajo.
 #### La otra ruta para Windows: compilar la ROM y jugarla fuera
 
 Para el cartucho de GBA hay un atajo mejor. Compila la ROM dentro de WSL,
-cópiala a Windows y ábrela con un emulador **nativo de Windows** — así te
-saltas cualquier rareza de gráficos, sonido o mandos de WSL:
+cópiala a Windows y ábrela con un emulador **nativo de Windows**. Así te saltas
+cualquier rareza de gráficos, sonido o mandos de WSL:
 
 ```sh
 # dentro de Ubuntu, tras compilar el cartucho
@@ -304,8 +431,6 @@ cp violethat.gba /mnt/c/Users/TU_USUARIO/Desktop/
 
 Y en Windows, abre ese `violethat.gba` con [mGBA](https://mgba.io/downloads.html)
 o con VisualBoyAdvance-M. El mando funciona ahí sin más.
-
----
 
 ### Compilar el cartucho de Game Boy Advance
 
@@ -375,7 +500,7 @@ qué tecla del teclado es cada botón. Con el mapeo por defecto de mGBA:
 | ------------ | ------------- | ------------------------ |
 | D-PAD        | flechas       | Andar y girar            |
 | A            | **X**         | **Disparar**             |
-| B            | Z             | —                        |
+| B            | Z             | sin usar                 |
 | SELECT       | **Retroceso** | **Pausar**               |
 | START        | **Enter**     | **Reanudar** / continuar |
 
@@ -422,7 +547,7 @@ veces.
 | Enter            | START                                | Continuar / nueva run      | START |
 | **P**            | SELECT / BACK                        | Pausar                     | SELECT |
 | **C**            | START                                | Reanudar                   | START |
-| Esc              | —                                    | Salir                      | —     |
+| Esc              | (solo teclado)                       | Salir                      | (no aplica) |
 
 Esa columna de la derecha es el **botón** de GBA, no la tecla que se pulsa en el
 emulador: eso lo decide el emulador, y está en «Controles del cartucho», más
@@ -431,7 +556,7 @@ arriba.
 Pausar y reanudar son **dos teclas distintas** y no una que alterna: a los 12-15
 fps de la consola un pulso llega a leerse en dos frames seguidos, y con un solo
 botón eso entra y sale de la pausa en el mismo toque. En pausa el mundo se
-sigue viendo —no se limpia la pantalla— para no perder de vista dónde se estaba.
+sigue viendo, sin limpiar la pantalla, para no perder de vista dónde estabas.
 
 El contador de FPS se dibuja arriba a la derecha en las dos plataformas, en la
 esquina que dejó libre el panel de estadísticas al bajarse. En GBA promedia
@@ -446,8 +571,8 @@ cuestan nada.
 
 Hay una diferencia real entre los dos: el ratón entrega un desplazamiento ya
 hecho y el stick una velocidad. Por eso el giro del ratón **no** se escala por
-el tiempo del frame —hacerlo ataría la sensibilidad a los FPS— y el del stick
-sí.
+el tiempo del frame, porque hacerlo ataría la sensibilidad a los FPS, y el del
+stick sí.
 
 **Todo el movimiento vive en el stick izquierdo**, igual que en el D-PAD de la
 consola: el eje horizontal gira la cámara y el vertical camina. El avance sale
@@ -496,8 +621,8 @@ exactamente el formato con el que se abre el dispositivo, así que no hay ningun
 conversión que hacer y una dependencia más no compraría nada.
 
 La capa de juego no sabe que existe el sonido. El bucle de escritorio detecta
-los flancos de lo que `Game` ya expone —fogonazo, interferencia de daño, aviso
-de recogida y estado— y dispara los efectos desde ahí. Por eso `game` y `engine`
+los flancos de lo que `Game` ya expone (fogonazo, interferencia de daño, aviso
+de recogida y estado) y dispara los efectos desde ahí. Por eso `game` y `engine`
 siguen compilando tal cual para GBA.
 
 **En consola suena lo mismo**, por DirectSound: `src/gba/Audio.cpp` tiene la
@@ -522,8 +647,9 @@ pase lo que pase con la duración del frame de juego: el motor va a 12-15 fps,
 pero ese ISR corre a 60 Hz.
 
 El contador de ciclos de `src/gba/Debug.h` tuvo que mudarse a TM2+TM3: el reloj
-de muestreo de DirectSound solo puede colgar de TM0 o TM1 —lo elige un bit de
-`SOUNDCNT_H` y no hay más opciones— y el contador puede vivir en cualquiera.
+de muestreo de DirectSound solo puede colgar de TM0 o TM1, lo elige un bit de
+`SOUNDCNT_H` y no hay más opciones, mientras que el contador puede vivir en
+cualquiera.
 
 ## Puntuación
 
@@ -541,11 +667,12 @@ pero peor.
 
 Cada sala repartida por el piso esconde una pieza de sistema: RAM sube la
 integridad máxima, PATCH cura y CACHE sube el daño del arma. Los guardianes
-pegan fuerte —diez de daño en el primer archivo y veintiséis en el quinto—, así
+pegan fuerte, diez de daño en el primer archivo y veintiséis en el quinto, así
 que recoger es lo que separa llegar al final de morir en el tercero.
 
-Los guardianes duermen hasta que te ven —alcance _y_ línea de visión, no solo
-cercanía—, entonces persiguen y golpean con una cadencia fija. Con el jugador a
+Los guardianes duermen hasta que te ven de verdad, con alcance _y_ línea de
+visión, no solo cercanía. A partir de ahí persiguen y golpean con una cadencia
+fija. Con el jugador a
 la vista van derechos; sin verlo siguen un campo de flujo calculado con una
 búsqueda en anchura desde la celda del jugador, compartido por todos y rehecho
 cuatro veces por segundo. Sin él se quedaban empujando la esquina que tuvieran
@@ -600,7 +727,9 @@ consola.
 ctest --test-dir build --output-on-failure
 ```
 
-Cinco suites. Las que valen algo son estas tres:
+Son siete suites. Cuatro hacen de red de seguridad (enemigos, pantallas, frames
+de referencia y equivalencia de rampas de color). Las tres que de verdad
+sostienen el juego son estas:
 
 - **`game`** conduce al jugador por los cinco pisos con la misma `Input` que
   produce la capa de plataforma, siguiendo una ruta calculada con BFS y
