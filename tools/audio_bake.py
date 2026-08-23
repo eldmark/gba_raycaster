@@ -15,18 +15,21 @@ remuestreador lineal a mano metería aliasing que un oido no distingue del
 "suena raro" que se supone que estamos evitando -- reinventar esto no compra
 nada.
 
-Tasas elegidas (ver README de tools/ y audio_gba_player.md para el porque):
-  - SFX (cortos): 16384 Hz. 16777216 (reloj de CPU) / 1024 = 16384 exacto,
-    o sea reload de timer = 65536-1024, sin resto: el temporizador no
-    arrastra error de fase contra el reloj de la consola. Es tambien casi
-    identico a los 16 kHz originales (+2.4%), asi que la conversion es casi
-    gratis en calidad para los efectos, que son los que mas se nota si
-    suenan mal.
-  - Musica (temas largos): 10512 Hz, una de las tasas clasicas de GBA
-    (reload=65536-1596, 16777216/1596=10512.03 Hz). La musica tolera mas
-    perdida que un efecto puntual y aqui es donde esta casi todo el peso en
-    bytes (184 de los 197 segundos totales), asi que es donde hay que
-    recortar tasa para bajar el total.
+Tasa elegida: 10512 Hz para TODO, musica y efectos.
+
+Es una de las tasas clasicas de GBA (reload de timer = 65536-1596), y la
+razon de que sea una sola y sea esta esta en como se alimenta la FIFO: un
+cuadro de video de la consola son 280.896 ciclos y 280896/1596 = 176 EXACTO.
+En cada VBlank se consumen exactamente 176 muestras, ni una mas ni una
+menos, asi que el reproductor puede rearmar el DMA cada VBlank sobre un
+buffer de 176 sin acumular deriva. A 16384 Hz salen 274,3125 muestras por
+cuadro, y esa fraccion hay que ir arrastrandola.
+
+Que sea la MISMA tasa para efectos y musica ahorra ademas el remuestreo en
+tiempo real que el diseno original ponia en el mezclador: si el asset ya
+esta a la tasa de hardware, reproducirlo es copiar bytes. Coste: los efectos
+pierden brillo respecto a los 16 kHz originales (5,2 kHz de ancho de banda
+en vez de 8), que en el altavoz de una GBA no es donde se pierde la partida.
 """
 import json
 import shutil
@@ -40,7 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent
 AUDIO_DIR = ROOT / "public" / "audio"
 OUT_DIR = ROOT / "tools" / "audio_baked"
 
-SFX_RATE = 16384
+SFX_RATE = 10512
 MUSIC_RATE = 10512
 
 # (nombre de archivo, tasa objetivo, nombre de simbolo C, es musica)

@@ -540,6 +540,48 @@ int main(int argc, char** argv) {
         assert(!g.bossAlive());
     }
 
+    // La pausa congela de verdad: en Paused el mundo no avanza ni un paso,
+    // aunque la entrada siga pidiendo caminar. Y solo la sacan de ahi con la
+    // tecla de continuar, no con la de pausar otra vez: son dos teclas a
+    // proposito, ver el comentario en Input.
+    {
+        Game g;
+        g.newRun(7u);
+        const fx dt = FX_ONE / 60;
+
+        Input walk;
+        walk.fwd = true;
+        for (int i = 0; i < 10; ++i) g.update(walk, dt);
+        assert(g.state() == Game::State::Playing);
+
+        Input pause;
+        pause.fwd = true;
+        pause.pause = true;
+        g.update(pause, dt);
+        assert(g.state() == Game::State::Paused);
+
+        const fx frozenX = g.player().x, frozenY = g.player().y;
+        const int frozenHp = g.hp();
+        const int frozenSecs = g.elapsedSeconds();
+        // Se mantiene PAUSA pulsada treinta frames pidiendo avanzar: ni se
+        // mueve, ni pierde integridad con los guardianes encima, ni corre el
+        // reloj de la run.
+        for (int i = 0; i < 30; ++i) g.update(pause, dt);
+        assert(g.state() == Game::State::Paused);
+        assert(g.player().x == frozenX && g.player().y == frozenY);
+        assert(g.hp() == frozenHp);
+        assert(g.elapsedSeconds() == frozenSecs);
+
+        Input resume;
+        resume.resume = true;
+        g.update(resume, dt);
+        assert(g.state() == Game::State::Playing);
+
+        // Y al reanudar vuelve a moverse.
+        for (int i = 0; i < 10; ++i) g.update(walk, dt);
+        assert(g.player().x != frozenX || g.player().y != frozenY);
+    }
+
     std::printf("all tests passed\n");
     return 0;
 }

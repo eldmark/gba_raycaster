@@ -91,7 +91,7 @@ SECTIONS
 		   mas abajo (fase 6). El reparto se hace aqui y no renombrando los
 		   objetos a *.iwram.o para que el Makefile siga compilando el motor
 		   TAL CUAL, que es lo que prueba que la separacion de capas sirvio. */
-		*(EXCLUDE_FILE (*.iwram* *Raycaster.o *Text.o *Renderer.o *Framebuffer.o) .text*)
+		*(EXCLUDE_FILE (*.iwram* *Raycaster.o *Text.o *Renderer.o *Framebuffer.o *Audio.o) .text*)
 		*(.gnu.linkonce.t.*)
 		KEEP (*(.text.*personality*))
 		/* .gnu.warning sections are handled specially by elf32.em.  */
@@ -186,6 +186,10 @@ SECTIONS
 		*Text.o(.text*)
 		*Renderer.o(.text*)
 		*Framebuffer.o(.text*)
+		/* El mezclador corre en un ISR 60 veces por segundo, cuatro o cinco
+		   veces por cada frame del juego. Es codigo caliente aunque no lo
+		   parezca: desde la ROM costaba mas que los sprites. */
+		*Audio.o(.text*)
 		. = ALIGN(4);   /* REQUIRED. LD is flaky without it. */
 		__iwram_end__ = ABSOLUTE(.) ;
 	} >iwram = 0xff

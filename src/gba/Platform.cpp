@@ -73,6 +73,12 @@ bool Platform::pollInput(Input& input) {
     input.back = (keys & KEY_DOWN) != 0;
     input.fire = (keys & KEY_A) != 0;
     input.start = (keys & KEY_START) != 0;
+    // SELECT congela, START reanuda. Dos botones y no uno que alterna: a los
+    // 12-15 fps que da la consola un pulso llega a leerse en dos frames
+    // seguidos, y con un solo boton eso entra y sale de la pausa en el mismo
+    // toque.
+    input.pause = (keys & KEY_SELECT) != 0;
+    input.resume = (keys & KEY_START) != 0;
     // turn y thrust se quedan en 0: no hay raton ni stick analogico en GBA.
 
     // Nunca hay "cerrar la ventana": la partida solo termina apagando la

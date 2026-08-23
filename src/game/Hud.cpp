@@ -43,7 +43,7 @@ namespace
 
 void drawHud(Framebuffer &fb, const Game &game)
 {
-    if (game.state() != Game::State::Playing)
+    if (!game.inWorld())
         return;
 
     const int s = uiScale(fb);
@@ -186,19 +186,58 @@ void drawHud(Framebuffer &fb, const Game &game)
             statW = w;
     }
 
-    const int statPanelW = statW + pad * 2;
-    const int statPanelH = line * 4 + pad * 2 - 3 * s;
+    // Va abajo a la derecha y no arriba: arriba es donde salen el aviso de
+    // recogida, la llave y la barra del nucleo, y un panel fijo en esa esquina
+    // se comia justo la parte del pasillo que se mira al avanzar. Abajo solo
+    // comparte borde con el panel de integridad, que esta en la otra esquina.
+    //
+    // Y con su propio padding, mas apretado que el del panel de integridad:
+    // en los 240x160 de la consola la fuente ya esta a escala 1 y no se puede
+    // encoger, asi que lo que se recorta es el aire alrededor del texto.
+    const int statPad = 2 * s;
+    const int statLine = textHeight(s) + s;
+    const int statPanelW = statW + statPad * 2;
+    const int statPanelH = statLine * 4 + statPad * 2 - s;
     const int sx = fb.width() - statPanelW - pad;
-    drawPanel(fb, sx, pad, statPanelW, statPanelH);
+    const int sy = fb.height() - statPanelH - pad;
+    drawPanel(fb, sx, sy, statPanelW, statPanelH);
 
     const unsigned char statColor[4] = {PAL_UI_TEXT, PAL_UI_DIM, PAL_UI_TEXT, PAL_UI_ACCENT};
-    int ry = pad + pad;
+    int ry = sy + statPad;
     for (int r = 0; r < 4; ++r)
     {
-        drawText(fb, sx + statPanelW - pad - textWidth(rows[r], s), ry, rows[r],
+        drawText(fb, sx + statPanelW - statPad - textWidth(rows[r], s), ry, rows[r],
                  statColor[r], s);
-        ry += line;
+        ry += statLine;
     }
+
+    // --- pausa ----------------------------------------------------------------
+    // No se limpia la pantalla como hacen las demas pantallas: en pausa
+    // interesa seguir viendo donde quedo uno. Solo una banda con el aviso.
+    if (game.paused())
+    {
+        const int bh = textHeight(s * 2) + pad * 2;
+        const int by = (fb.height() - bh) / 2;
+        fb.fillRect(0, by, fb.width(), bh, PAL_UI_BG);
+        fb.fillRect(0, by, fb.width(), s, PAL_UI_ACCENT);
+        fb.fillRect(0, by + bh - s, fb.width(), s, PAL_UI_ACCENT);
+        drawTextCentered(fb, by + pad, "PAUSA", PAL_UI_ACCENT, s * 2);
+        drawTextCentered(fb, by + bh + pad, "START CONTINUA", PAL_UI_TEXT, s);
+    }
+}
+
+void drawFps(Framebuffer &fb, int fps)
+{
+    const int s = uiScale(fb);
+    char buf[12];
+    int i = 0;
+    for (const char *t = "FPS "; *t; ++t)
+        buf[i++] = *t;
+    intToText(buf + i, fps);
+    // Arriba a la izquierda, sin panel: el contador es instrumental, no parte
+    // de la ficcion del HUD, y un fondo mas seria un rectangulo mas que tapa
+    // mundo. El color de acento se lee sobre cualquier pared.
+    drawText(fb, 2 * s, 2 * s, buf, PAL_UI_ACCENT, s);
 }
 
 namespace
@@ -272,7 +311,7 @@ namespace
 void drawScreen(Framebuffer &fb, const Game &game)
 {
     const Game::State st = game.state();
-    if (st == Game::State::Playing)
+    if (game.inWorld())
         return;
 
     const int s = uiScale(fb);

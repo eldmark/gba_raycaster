@@ -17,22 +17,26 @@ char* regDebugString() { return reinterpret_cast<char*>(0x4FFF600); }
 namespace gbadbg {
 
 void startCycleCounter() {
-    REG_TM0CNT_H = 0;
-    REG_TM1CNT_H = 0;
-    REG_TM0CNT_L = 0;
-    REG_TM1CNT_L = 0;
-    REG_TM0CNT_H = TIMER_START;                // prescaler 1: un tick por ciclo de CPU
-    REG_TM1CNT_H = TIMER_START | TIMER_COUNT;   // cascada: cuenta los desbordes de TM0
+    // TM2+TM3 y no TM0+TM1: el reloj de muestreo de DirectSound (src/gba/Audio.cpp)
+    // solo puede colgar de TM0 o TM1 -- lo elige un bit de SOUNDCNT_H y no hay
+    // mas opciones-- asi que el contador de ciclos, que puede vivir en
+    // cualquiera, se aparta a los dos de arriba.
+    REG_TM2CNT_H = 0;
+    REG_TM3CNT_H = 0;
+    REG_TM2CNT_L = 0;
+    REG_TM3CNT_L = 0;
+    REG_TM2CNT_H = TIMER_START;                // prescaler 1: un tick por ciclo de CPU
+    REG_TM3CNT_H = TIMER_START | TIMER_COUNT;   // cascada: cuenta los desbordes de TM2
 }
 
 uint32_t cycles() {
-    // TM1 es la mitad alta; hay que leer TM0 dos veces por si acaso cascadea
+    // TM3 es la mitad alta; hay que leer TM2 dos veces por si acaso cascadea
     // justo entre medias (mismo truco que leer un contador de 64 bits en dos
     // mitades de 32).
-    uint16_t hi1 = REG_TM1CNT_L;
-    uint16_t lo = REG_TM0CNT_L;
-    uint16_t hi2 = REG_TM1CNT_L;
-    if (hi2 != hi1) lo = REG_TM0CNT_L;  // desbordo justo ahora: releer la mitad baja
+    uint16_t hi1 = REG_TM3CNT_L;
+    uint16_t lo = REG_TM2CNT_L;
+    uint16_t hi2 = REG_TM3CNT_L;
+    if (hi2 != hi1) lo = REG_TM2CNT_L;  // desbordo justo ahora: releer la mitad baja
     return (uint32_t(hi2) << 16) | lo;
 }
 
@@ -42,7 +46,11 @@ void log(const char* msg) {
     if (n > 255) n = 255;  // el buffer de mGBA son 256 bytes
     std::memcpy(regDebugString(), msg, n);
     regDebugString()[n] = '\0';
-    regDebugFlags() = 3 | 0x100;  // nivel INFO, bit 8 = enviar
+    // Nivel WARN (2) y no INFO (3): mGBA registra CADA transferencia de DMA a
+    // nivel INFO, y con el audio alimentando dos FIFO por VBlank eso son miles
+    // de lineas por segundo que ahogan la medida y frenan el emulador. A nivel
+    // WARN se lee con "mgba -l 4" y solo sale lo nuestro.
+    regDebugFlags() = 2 | 0x100;  // nivel WARN, bit 8 = enviar
 }
 
 }  // namespace gbadbg

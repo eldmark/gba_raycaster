@@ -19,6 +19,7 @@ public:
         Title,     // pantalla de bienvenida
         Rules,     // reglas, antes de conectar
         Playing,
+        Paused,    // congelada a peticion del jugador; el mundo se sigue viendo
         Transition, // ruta asegurada: breve pantalla entre archivos
         Dead,      // integridad a cero: la run termino
         Cleared,   // se supero el ultimo archivo
@@ -57,6 +58,11 @@ public:
     const Maze&   maze() const { return maze_; }
     const Player& player() const { return player_; }
     State    state() const { return state_; }
+    // Cierto mientras haya un mundo que dibujar, se este simulando o no. Lo
+    // usan los bucles principales para no tener que repetir la pareja
+    // Playing/Paused en cada plataforma.
+    bool     inWorld() const { return state_ == State::Playing || state_ == State::Paused; }
+    bool     paused() const { return state_ == State::Paused; }
     int      floor() const { return floor_; }
     int      hp() const { return hp_; }
     int      hpMax() const { return hpMax_; }
@@ -142,6 +148,7 @@ private:
     // START, izquierda y derecha se leen por FLANCO en los menus: por nivel,
     // mantener una tecla pulsada recorreria los cinco archivos en cinco frames.
     bool prevStart_ = false;
+    bool prevPause_ = false;
     bool prevLeft_ = false, prevRight_ = false;
 
     Enemy enemies_[MAX_ENEMIES];

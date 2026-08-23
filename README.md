@@ -19,7 +19,8 @@ Los seis materiales de pared y todos los sprites, tal como los construye
 ## Estado
 
 Corre en Linux y **arranca en Game Boy Advance**: `make -f Makefile.gba` deja un
-cartucho de 73 KB que se carga en un emulador o en una flashcard. No queda
+cartucho de 2,1 MB —dos de esos megas son el audio horneado— que se carga en un
+emulador o en una flashcard. No queda
 aritmética de coma flotante en el camino de render y el framebuffer usa el mismo
 formato indexado de 8 bits que el modo 4 de la consola.
 
@@ -41,6 +42,20 @@ medido antes y después:
 | Un rayo cada dos columnas en la consola | **1.123.221** | **14,9 fps** |
 
 La pantalla de título va a **29,9 fps**, que es el objetivo del port.
+
+Esa columna es **un frame**: el segundo tras cargar el primer archivo, con el
+jugador parado. Medida sobre 200 frames con el jugador girando y avanzando, y
+entrando también por el último archivo (mapa de 48×48 en vez de 28×28), la cifra
+honesta es otra:
+
+| | mín | máx | media |
+| --- | ---: | ---: | ---: |
+| Archivo 1 | 18,8 fps | 12,0 fps | **13,5 fps** |
+| Archivo 6 | 14,9 fps | 10,0 fps | **12,4 fps** |
+
+Lo que crece con el piso es el minimapa (90.527 → 161.930 ciclos, el mapa es más
+grande) y los sprites (25.808 → 97.944, hay más guardianes despiertos). Un frame
+quieto en el primer archivo no ve ninguna de las dos cosas.
 
 El hallazgo que ordenó todo lo demás: el coste dominante no era el pixel, era
 **buscar en la ROM el código que lo escribía**. Por eso quitar una llamada del
@@ -77,7 +92,20 @@ ciclos, y un `std::memcpy` de dos bytes —que debería compilar a un `strh`— 
 557.592. La versión buena escribe los dos píxeles como un halfword con un
 `typedef may_alias`.
 
-Y el sonido sigue sin engancharse: la consola arranca muda.
+El audio de consola cuesta unos 11.000 ciclos por frame de media y no movió la
+media de fps de forma apreciable —12,5 antes, 12,4 después—, pero para llegar
+ahí hubo que pagar dos cosas. La primera versión costaba 195.000 ciclos por
+frame: el mezclador corre en un ISR de VBlank, o sea cuatro o cinco veces por
+cada frame del juego, y desde la ROM eso salía más caro que dibujar todos los
+sprites. Se arregló igual que todo lo demás de este port —`Audio.o` a IWRAM
+compilado en ARM— más sacar del bucle por muestra las comprobaciones que no
+cambian dentro de él.
+
+Lo segundo fue un registro mal escrito: `REG_DMA2CNT_H` estaba puesto en
+`0x0CE`, que es la mitad alta de `DMA2DAD` y no el control del canal. El
+cartucho sonaba con música y sin ningún efecto. Los registros de DMA van de doce
+en doce bytes desde `0x0BC`, así que el control del segundo canal está en
+`0x0D2`.
 
 MVP (sección 29 del documento de diseño):
 
@@ -100,7 +128,7 @@ MVP (sección 29 del documento de diseño):
 - [x] Jefe final — NUCLEO CENTINELA
 - [x] Música y efectos de sonido
 - [x] Ratón, mando y selección de archivo
-- [x] Port a Game Boy Advance — la ROM arranca y se juega, a 2,6 fps y sin sonido
+- [x] Port a Game Boy Advance — se juega a 12-15 fps, con música y efectos
 
 ## Compilar y jugar
 
@@ -131,6 +159,13 @@ el linker script y las banderas son otros.
 make -f Makefile.gba
 ```
 
+La primera compilación hornea el audio: `tools/audio_bake.py` convierte los
+siete WAV de `public/audio` a PCM de 8 bits con `ffmpeg` y escribe 2 MB de
+arrays C en `tools/audio_baked/`. Eso tarda unos 40 segundos y no está en el
+repositorio (se genera, no se versiona), así que hace falta **ffmpeg** además de
+devkitARM. `make -f Makefile.gba clean` no lo borra a propósito; para rehornear
+de cero, `rm -rf tools/audio_baked && make -f Makefile.gba audio`.
+
 Deja `violethat.gba` en la raíz, listo para un emulador o para una flashcard.
 Para jugarlo en el PC:
 
@@ -139,17 +174,24 @@ mgba-qt violethat.gba      # o cualquier emulador: VBA-M, no$gba, mGBA
 ```
 
 En hardware real hace falta una flashcard (EverDrive GBA, EZ-Flash): se copia
-el `.gba` a la tarjeta SD y se arranca desde el menú. La ROM son 73 KB y no usa
+el `.gba` a la tarjeta SD y se arranca desde el menú. La ROM son 2,1 MB y no usa
 memoria de guardado, así que no hay `.sav` que preparar.
 
-Los controles de consola son el D-PAD para andar y girar, **A** para disparar y
-**START** para continuar y para empezar una run nueva.
+Los controles de consola son el D-PAD para andar y girar, **A** para disparar,
+**SELECT** para pausar, y **START** para continuar y para empezar una run
+nueva.
 
 `make -f Makefile.gba profile` compila una segunda ROM, distinta: pulsa START
 sola al arrancar y pinta en pantalla el coste en ciclos del frame de título y
 del frame jugando, además de volcarlo al log de depuración de mGBA
-(`mgba -l 255`). Sirve para medir, no para jugar; el cartucho normal no lleva
-nada de eso.
+(`mgba -l 4`). Sirve para medir, no para jugar; el cartucho normal no lleva nada
+de eso. `profile-maxfloor` hace lo mismo entrando por el último archivo, que es
+el caso caro.
+
+El log va a nivel WARN y no INFO porque mGBA registra **cada** transferencia de
+DMA a nivel INFO: con el audio alimentando dos FIFO en cada VBlank, `-l 8`
+son miles de líneas por segundo que ahogan la medida y frenan al emulador unas
+180 veces.
 
 ## Controles
 
@@ -160,7 +202,18 @@ nada de eso.
 | Espacio · Ctrl   | Clic izquierdo · botón X             | Disparar                   | A     |
 | ← → en el título | D-PAD · stick                        | Elegir archivo de entrada  | D-PAD |
 | Enter            | START                                | Continuar / nueva run      | START |
+| **P**            | SELECT / BACK                        | Pausar                     | SELECT |
+| **C**            | START                                | Reanudar                   | START |
 | Esc              | —                                    | Salir                      | —     |
+
+Pausar y reanudar son **dos teclas distintas** y no una que alterna: a los 12-15
+fps de la consola un pulso llega a leerse en dos frames seguidos, y con un solo
+botón eso entra y sale de la pausa en el mismo toque. En pausa el mundo se
+sigue viendo —no se limpia la pantalla— para no perder de vista dónde se estaba.
+
+El contador de FPS se dibuja arriba a la izquierda en las dos plataformas. En
+GBA promedia ocho frames de ciclos crudos: uno solo salta entre 12 y 18 según lo
+que haya delante y el número sería ilegible de tan inquieto.
 
 El ratón gira con el cursor capturado, así que se puede girar sin tope. El
 mando se detecta al arrancar **y al enchufarlo con el juego abierto**. Los
@@ -222,8 +275,32 @@ conversión que hacer y una dependencia más no compraría nada.
 La capa de juego no sabe que existe el sonido. El bucle de escritorio detecta
 los flancos de lo que `Game` ya expone —fogonazo, interferencia de daño, aviso
 de recogida y estado— y dispara los efectos desde ahí. Por eso `game` y `engine`
-siguen compilando tal cual para GBA, donde el sonido sale por los canales de DMA
-del hardware.
+siguen compilando tal cual para GBA.
+
+**En consola suena lo mismo**, por DirectSound: `src/gba/Audio.cpp` tiene la
+misma interfaz que la versión de SDL (`play`, `setTrack`) y el bucle de GBA hace
+exactamente las mismas llamadas, en el mismo orden. La FIFO A lleva la música y
+la FIFO B la mezcla de hasta cuatro efectos; sumar las dos lo hace el propio
+chip, así que no hay una pasada de mezcla más en software.
+
+Todo se hornea a **10512 Hz**, una sola tasa para música y efectos, y la razón
+es la cadencia: un cuadro de vídeo son 280.896 ciclos y 280896/1596 = **176
+exacto**. En cada VBlank se consumen 176 muestras justas, ni una más, así que el
+DMA se puede rearmar cada VBlank sin acumular deriva. A los 16384 Hz que
+proponía el diseño original salen 274,3125 muestras por cuadro y esa fracción
+hay que ir arrastrándola. Como además el asset ya está a la tasa de hardware, no
+queda ningún remuestreador en tiempo real: reproducir es copiar bytes.
+
+El DMA se rearma en cada VBlank en vez de dejarlo correr porque el hardware no
+envuelve el puntero de origen solo: con *Repeat* recarga la cuenta pero sigue
+leyendo hacia adelante, así que un canal armado una vez se sale del buffer a los
+pocos cuadros. Rearmarlo es además lo que mantiene el sonido enganchado al vídeo
+pase lo que pase con la duración del frame de juego: el motor va a 12-15 fps,
+pero ese ISR corre a 60 Hz.
+
+El contador de ciclos de `src/gba/Debug.h` tuvo que mudarse a TM2+TM3: el reloj
+de muestreo de DirectSound solo puede colgar de TM0 o TM1 —lo elige un bit de
+`SOUNDCNT_H` y no hay más opciones— y el contador puede vivir en cualquiera.
 
 ## Puntuación
 

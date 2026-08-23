@@ -17,7 +17,12 @@ struct Input {
     bool fwd = false;
     bool back = false;
     bool fire = false;   // A en GBA: disparar
-    bool start = false;  // START en GBA: reiniciar / pausar
+    bool start = false;  // START en GBA: reiniciar / continuar
+    // Pausa y continuar son DOS teclas y no una que alterna: con una sola,
+    // el mismo boton que congela la partida es el que la reanuda, y a 12 fps
+    // un pulso se lee dos frames seguidos y la pausa parpadea.
+    bool pause = false;   // SELECT en GBA, P en el teclado
+    bool resume = false;  // START en GBA, C en el teclado
 
     // Giro analogico, en unidades de angulo ya listas para sumar (65536 = una
     // vuelta). Lo llenan el raton y el stick del mando, que dan una cantidad y

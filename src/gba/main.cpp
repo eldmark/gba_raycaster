@@ -1,3 +1,4 @@
+#include "Audio.h"
 #include "Debug.h"
 #include "Fixed.h"
 #include "Framebuffer.h"
@@ -121,8 +122,22 @@ int main() {
     // mediciones entre corridas.
     game.setSeed(12345u);
 
+    // El audio se engancha exactamente igual que en escritorio: mirando lo que
+    // el juego ya expone (fogonazo, dano, recogida, cambio de estado). La capa
+    // de juego sigue sin saber que existe el sonido.
+    static Audio audio;
+    audio.init();
+    bool prevMuzzle = false, prevHurt = false, prevNotice = false;
+
     Input input;
     fx dt = FX_ONE / 60;
+
+    // Contador de fps propio. No usa ticksMs() porque a 12-15 fps redondear a
+    // milisegundos y volver a dividir pierde mas de lo que mide: se promedian
+    // ocho frames de ciclos crudos y se divide una sola vez.
+    uint32_t fpsAccum = 0;
+    int fpsFrames = 0;
+    int shownFps = 0;
 
 #if defined(GBA_PROFILE) || defined(GBA_AUTOSTART)
     int frame = 0;
@@ -163,13 +178,33 @@ int main() {
         }
 #endif
 
-#ifdef GBA_PROFILE
-        const uint32_t before = gbadbg::cycles();
-#endif
+        const uint32_t frameStart = gbadbg::cycles();
 
+        const Game::State before = game.state();
         game.update(input, dt);
 
-        if (game.state() == Game::State::Playing) {
+        // Mismo enganche que src/desktop/main.cpp, en el mismo orden.
+        const bool muzzle = game.muzzleFlash();
+        const bool hurt = game.connectionLoss() > 0;
+        const bool notice = game.pickupNotice() != nullptr;
+        if (muzzle && !prevMuzzle) audio.play(Audio::Shot);
+        if (hurt && !prevHurt) audio.play(Audio::Damage);
+        if (notice && !prevNotice) audio.play(Audio::Pickup);
+        prevMuzzle = muzzle;
+        prevHurt = hurt;
+        prevNotice = notice;
+
+        if (game.state() != before) {
+            if (game.state() == Game::State::Transition) audio.play(Audio::LevelUp);
+            if (game.state() == Game::State::Cleared) audio.play(Audio::Victory);
+        }
+        // El tema de asalto acompana a la partida -- pausa incluida, que sigue
+        // siendo la partida-- y el resto de pantallas se quedan con el principal.
+        audio.setTrack(game.inWorld() || game.state() == Game::State::Transition
+                           ? Audio::Assault
+                           : Audio::Menu);
+
+        if (game.inWorld()) {
             PROF_MARK(world, renderWorld(fb, game.maze(), game.player()));
 
             SpriteInstance sprites[Game::MAX_WORLD_SPRITES];
@@ -208,11 +243,22 @@ int main() {
         const uint32_t beforePresent = gbadbg::cycles();
 #endif  // GBA_PROFILE
 
+        drawFps(fb, shownFps);
+
         platform.present(fb);
+
+        // Ocho frames por medida: uno solo salta entre 12 y 18 segun lo que
+        // haya delante y el numero seria ilegible de tan inquieto.
+        fpsAccum += gbadbg::cycles() - frameStart;
+        if (++fpsFrames == 8) {
+            shownFps = fpsAccum ? int(8u * 16780000u / fpsAccum) : 0;
+            fpsAccum = 0;
+            fpsFrames = 0;
+        }
 
 #ifdef GBA_PROFILE
         const uint32_t presentCycles = gbadbg::cycles() - beforePresent;
-        const uint32_t frameCycles = gbadbg::cycles() - before;
+        const uint32_t frameCycles = gbadbg::cycles() - frameStart;
 
         // Un frame de la pantalla de titulo (barato: solo texto) y uno ya
         // jugando (caro: DDA + sprites + minimapa + HUD) se registran una vez

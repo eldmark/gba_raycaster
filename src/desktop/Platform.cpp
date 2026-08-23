@@ -138,6 +138,10 @@ bool Platform::pollInput(Input& input) {
     input.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LCTRL] ||
                  (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_LEFT));
     input.start = keys[SDL_SCANCODE_RETURN];
+    // P pausa, C continua. Ver el comentario del mismo par en src/gba: son dos
+    // teclas a proposito, no una que alterna.
+    input.pause = keys[SDL_SCANCODE_P];
+    input.resume = keys[SDL_SCANCODE_C];
 
     input.turn = mouseDX * MOUSE_SENS;
 
@@ -149,6 +153,11 @@ bool Platform::pollInput(Input& input) {
 
         // El D-PAD se suma a las flechas; los menus se manejan con el mismo
         // left/right por flanco que el teclado.
+        // En el mando el par es el mismo que en la consola: SELECT/BACK
+        // congela y START reanuda.
+        input.pause = input.pause || held(SDL_CONTROLLER_BUTTON_BACK);
+        input.resume = input.resume || held(SDL_CONTROLLER_BUTTON_START);
+
         input.left = input.left || held(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
         input.right = input.right || held(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
         input.fwd = input.fwd || held(SDL_CONTROLLER_BUTTON_DPAD_UP);

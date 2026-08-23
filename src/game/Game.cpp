@@ -382,7 +382,9 @@ void Game::update(const Input& input, fx dt) {
     const bool startPressed = input.start && !prevStart_;
     const bool leftPressed = input.left && !prevLeft_;
     const bool rightPressed = input.right && !prevRight_;
+    const bool pausePressed = input.pause && !prevPause_;
     prevStart_ = input.start;
+    prevPause_ = input.pause;
     prevLeft_ = input.left;
     prevRight_ = input.right;
 
@@ -405,7 +407,18 @@ void Game::update(const Input& input, fx dt) {
         case State::Cleared:
             if (startPressed) state_ = State::Title;
             return;
+        case State::Paused:
+            // Solo la tecla de continuar saca de aqui. El resto de la entrada
+            // se ignora: en pausa el jugador no dispara ni camina.
+            if (input.resume) state_ = State::Playing;
+            return;
         case State::Playing:
+            // La pausa se atiende antes de simular nada, para que el frame en
+            // que se pulsa no avance medio paso mas.
+            if (pausePressed) {
+                state_ = State::Paused;
+                return;
+            }
             break;
     }
 

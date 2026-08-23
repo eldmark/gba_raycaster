@@ -1,10 +1,11 @@
 # Reproductor de audio para GBA (fase 7)
 
-Diseno del reproductor. El codigo de referencia esta en `tools/audio_player.h` y
-`tools/audio_player.c`, autonomo: no incluye nada de `src/engine`, `src/game` ni
-`src/desktop`, y no toca ningun Makefile. Es codigo de referencia, no esta
-enlazado en ninguna ROM todavia porque el esqueleto GBA (fase 3) no existe en
-este worktree. Queda listo para que quien construya el esqueleto lo enganche.
+**Este documento describe el reproductor que se envio.** El codigo esta en
+`src/gba/Audio.cpp` y `src/gba/Audio.h`, enlazado desde `Makefile.gba`. Hubo una
+version de referencia previa en `tools/audio_player.c/.h` que ya no existe: al
+aterrizarla sobre el esqueleto real cambiaron dos decisiones de fondo -la tasa
+de muestreo y como se realimenta el DMA-, y mantenerla al lado habria dejado dos
+disenos distintos con el mismo nombre.
 
 ## Por que DirectSound y no los 4 canales DMG
 
@@ -15,38 +16,34 @@ musica con instrumentos reales y efectos con textura de disparo/estatico— eso
 no se sintetiza razonablemente con 4 canales DMG. DirectSound reproduce PCM
 horneado tal cual: es la unica opcion que no significa re-componer el audio.
 
-## Reloj de muestreo: timer 0, una sola tasa de hardware
+## Reloj de muestreo: timer 0, una sola tasa para todo
 
-El hardware de DirectSound no tiene su propio generador de reloj: cada FIFO
-se vacia al ritmo que le marque uno de los timers (`DSOUNDCTRL_ATIMER`,
-`DSOUNDCTRL_BTIMER`), y ambos FIFO pueden apuntar al mismo timer. Se usa
-**timer 0 para los dos**, a una tasa unica de reproduccion de hardware:
+DirectSound no tiene generador de reloj propio: cada FIFO se vacia al ritmo del
+timer que le marque `SOUNDCNT_H`, y solo puede ser el **timer 0 o el 1**. Se usa
+el timer 0 para los dos canales, a una tasa unica de **10512 Hz**:
 
 ```
-HW_RATE = 16384 Hz
-reload  = 65536 - (16777216 / HW_RATE) = 65536 - 1024 = 64512
+reload = 65536 - 1596       (16777216 / 1596 = 10512 Hz)
 ```
 
-16384 Hz se eligio porque `16777216 / 1024 = 16384` exacto: el reload no deja
-resto, asi que el timer no arrastra error de fase contra el reloj de la
-consola frame tras frame. Es tambien la tasa a la que se hornearon los
-efectos (`tools/audio_bake.py`), asi que se copian a la FIFO tal cual, sin
-convertir nada en tiempo real.
+La razon de que sea 1596 y no otra cosa es la cadencia contra el video: un
+cuadro de la consola son **280.896 ciclos** y `280896 / 1596 = 176` **exacto**.
+En cada VBlank se consumen 176 muestras justas, asi que el buffer se puede
+rellenar y el DMA rearmar una vez por VBlank sin acumular deriva. A los 16384 Hz
+que proponia el diseno original salen 274,3125 muestras por cuadro, y esa
+fraccion hay que ir arrastrandola frame a frame.
 
-La musica se horneo a 10512 Hz para ahorrar ROM (ver `docs/port.md` fase 7 y
-el reporte de `audio_bake.py`). Para no duplicar buffers a dos tasas de
-hardware, el canal de musica se remuestrea en el momento de mezclar con un
-acumulador de fase de punto fijo (8.8): un `paso = (10512<<8)/16384` que se
-suma por muestra de salida y el indice de lectura es `acumulador >> 8`
-(vecino mas cercano, sin interpolar). Es la misma tecnica que usan los
-reproductores de tracker de la escena homebrew (p.ej. Maxmod) para no
-necesitar una tasa de hardware por pista. Coste: una suma, un shift y un
-acceso a array por muestra de musica — barato comparado con los ~200.000
-ciclos que ya se gastan en el bucle de pared.
+Y como `tools/audio_bake.py` hornea **musica y efectos a esa misma tasa**, no
+queda remuestreador en tiempo real: reproducir es copiar bytes. El acumulador de
+fase 8.8 que describia el diseno original desaparecio con el.
+
+Efecto colateral en el resto del port: el contador de ciclos de
+`src/gba/Debug.h` tuvo que mudarse de TM0+TM1 a **TM2+TM3**. El audio no puede
+usar otros timers; el contador si.
 
 ## FIFO A = musica, FIFO B = efectos, la suma la hace el hardware
 
-- **DMA1 -> FIFO A**: solo el canal de musica (resampleado como arriba). Una
+- **DMA1 -> FIFO A**: solo el canal de musica, copiada tal cual del asset. Una
   sola fuente, sin mezclar en software.
 - **DMA2 -> FIFO B**: la mezcla en software de hasta 4 voces de efectos
   simultaneos (disparo, dano, recogida, aviso — el mismo limite de 4 que ya
@@ -61,73 +58,81 @@ Esto respeta el pedido: "mezcla de un canal de musica mas efectos", pero solo
 donde hace falta software (varios efectos a la vez comparten un FIFO); mezclar
 musica+efectos es gratis porque ya lo hace el chip.
 
-## Buffer doble en EWRAM, DMA en modo "Special" (FIFO)
+## Buffer doble en EWRAM, DMA rearmado en cada VBlank
 
-Cada FIFO se alimenta con un buffer circular de dos mitades
-(`HALF_LEN = 320` muestras, multiplo de 4 para transferencias de 32 bits):
+Cada FIFO se alimenta con un buffer de dos mitades de 176 muestras (352 bytes
+por canal, 704 en total). 176 es multiplo de 4, que es lo que necesita un DMA de
+32 bits: el hardware ignora los dos bits bajos de la direccion y una mitad
+desalineada se leeria corrida.
 
+El DMA va en modo "Special/Sound timing": destino fijo, fuente incremental, 32
+bits, repetir. Quien dispara cada transferencia es la senal de "FIFO con hambre"
+del propio hardware de sonido, no el timer directamente.
+
+**El punto que el diseno original tenia mal**: no basta con armar el canal una
+vez. El hardware no envuelve el puntero de origen solo -con *Repeat* recarga la
+cuenta pero sigue leyendo hacia adelante-, asi que un canal armado una vez se
+sale del buffer a los pocos cuadros y lo que sale por el altavoz es memoria.
+`onVBlank()` apaga el canal, lo apunta a la mitad que se lleno en el VBlank
+anterior y lo vuelve a encender; solo despues rellena la otra mitad. Al reves se
+estaria escribiendo encima de lo que el hardware esta leyendo en ese momento.
+
+Rearmar cada cuadro es ademas lo que mantiene el sonido enganchado al video pase
+lo que pase con la duracion del frame de juego: el motor va a 12-15 fps, pero
+este ISR corre a 60 Hz, colgado de `irqSet(IRQ_VBLANK, ...)` de libgba.
+
+## Coste, y por que el mezclador vive en IWRAM
+
+La primera version costaba **195.000 ciclos por frame de juego**. Corre cuatro o
+cinco veces por cada frame del motor, y desde la ROM salia mas caro que dibujar
+todos los sprites. Dos arreglos lo bajaron a unos **11.000**:
+
+- `Audio.o` a IWRAM compilado en ARM, la misma leccion que el resto del port.
+- Sacar del bucle por muestra lo que no cambia dentro de el: las voces vivas se
+  recogen antes de entrar, y los casos de cero voces y de una sola -que son el
+  99% del tiempo- no pasan por la suma ni por la saturacion.
+
+## Un registro mal escrito, y como se vio
+
+`REG_DMA2CNT_H` estaba puesto en `0x0CE`. Los registros de DMA van de doce en
+doce bytes desde `0x0BC`, asi que `0x0CE` cae en la mitad alta de `DMA2DAD` y no
+en el control del canal: el canal de efectos nunca llegaba a encenderse y el
+cartucho sonaba con musica y sin un solo disparo. La direccion correcta es
+`0x0D2`.
+
+Se vio corriendo `mgba -l 15` y contando las lineas "Starting DMA": 1157 del
+canal 1 y **cero** del canal 2. Es la clase de fallo que no da error de
+compilacion ni cuelga nada, y que escuchando por encima se confunde con "los
+efectos suenan bajito".
+
+## API (`src/gba/Audio.h`)
+
+Es la MISMA que la de escritorio (`src/desktop/Audio.h`), a proposito: el bucle
+principal de cada plataforma hace las mismas llamadas en el mismo orden, y la
+capa de juego sigue sin saber que existe el sonido.
+
+```cpp
+bool init();
+void shutdown();
+void play(Sfx sfx);        // Shot, Damage, Pickup, LevelUp, Victory
+void setTrack(Track track); // None, Menu, Assault
 ```
-[ mitad A (320 s8) | mitad B (320 s8) ]   <- 640 bytes por canal, 1280 total
-```
 
-El DMA se arma una vez en modo "Special/Sound Timing": `DestAddrCtrl=Fixed`,
-`SrcAddrCtrl=Increment`, `Size=32bit`, `Repeat=1`, disparado por la senal de
-"FIFO necesita datos" del propio hardware de sonido, no por el timer
-directamente ni por VBlank. El timer 0 es lo que hace que esa senal llegue a
-la tasa correcta.
-
-Como el DMA nunca se detiene solo (sigue incrementando el puntero fuente
-mientras el juego corra), hace falta re-sincronizarlo:
-
-- `gbaAudioVBlank()` se llama una vez por VBlank (desde el ISR de VBlank del
-  esqueleto GBA, cuando exista). Rellena la mitad que **no** se esta
-  reproduciendo con muestras nuevas mezcladas.
-- Cuando el DMA llega al final del buffer de 640 bytes hay que devolver el
-  puntero fuente al principio a mano (escribir `REG_DMAxSAD` y re-armar el
-  canal) porque el hardware no envuelve el puntero solo.
-
-> ponytail: la version de referencia asume que `gbaAudioVBlank()` se llama
-> exactamente una vez por VBlank (59,7 Hz) y no lee de vuelta el puntero de
-> DMA (`REG_DMA1SAD`/`REG_DMA2SAD`) para resincronizarse si un IRQ se retrasa
-> mas de un cuadro. Si en el esqueleto real algun ISR mas largo llega a saltar
-> un VBlank, el audio se desincroniza brevemente (glitch de un frame, no un
-> crash). Subsanar leyendo el puntero de DMA real en vez de asumir la
-> cadencia, si hace falta mas robustez que la que da un homebrew casual.
-
-## API de referencia (`tools/audio_player.h`)
-
-```c
-void gbaAudioInit(void);
-void gbaAudioSetMusic(const AudioTrack* track); // NULL detiene la musica
-void gbaAudioPlaySfx(const AudioClip* clip);    // se pierde si las 4 voces estan ocupadas
-void gbaAudioVBlank(void);                      // llamar una vez por VBlank
-```
-
-`AudioTrack` y `AudioClip` son punteros a los arrays horneados por
-`tools/audio_bake.py` (`tools/audio_baked/*.c/.h`, incluidos todos desde
-`audio_assets.h`).
+Los datos son los arrays que hornea `tools/audio_bake.py` en
+`tools/audio_baked/*.c`, declarados todos desde `audio_assets.h`. Se compilan
+con g++ como el resto (g++ trata un `.c` como C++), asi que no hace falta
+ningun `extern "C"` de por medio.
 
 ## Presupuesto de EWRAM
 
 ```
-buffer musica (2 x 320 s8)   640 B
-buffer efectos (2 x 320 s8)  640 B
-estado de 4 voces de efectos  32 B  (puntero + posicion + volumen por voz)
-estado del canal de musica     8 B  (puntero + acumulador de fase)
+buffer musica (2 x 176 s8)   352 B
+buffer efectos (2 x 176 s8)  352 B
+estado de 4 voces             48 B
+estado del canal de musica    12 B
 --------------------------------
-total                       ~1.3 KB
+total                        ~0,8 KB
 ```
 
-Bastante por debajo de los ~4 KB que estimo la fase 7 del plan — sobra margen
-si hiciera falta engordar el buffer para tolerar un ISR mas lento.
-
-## Que falta para integrar (fuera de este alcance)
-
-1. Enganchar `gbaAudioInit()` al arranque y `gbaAudioVBlank()` al ISR de
-   VBlank del `Platform` de GBA — no existe todavia en este worktree (fase 3,
-   la construye otro agente en paralelo).
-2. Reemplazar `src/desktop/Audio.h`/`.cpp` por un `Audio` de GBA que llame a
-   esta API (mismo patron que `Platform`: la capa de juego no sabe que existe
-   el sonido, solo llama a `play(Sfx)` / `setTrack(Track)`).
-3. Enlazar `tools/audio_baked/*.c` en el build de GBA (no en el de escritorio:
-   ese sigue leyendo los `.wav` con SDL, sin tocar).
+Muy por debajo de los ~4 KB que estimo la fase 7. Donde si pesa el audio es en
+la ROM: 2,06 MB de PCM horneado, que llevan el cartucho de 79 KB a 2,14 MB.

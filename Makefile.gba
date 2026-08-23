@@ -20,9 +20,22 @@ ENGINE_SRC := $(wildcard src/engine/*.cpp)
 GAME_SRC   := $(wildcard src/game/*.cpp)
 GBA_SRC    := $(wildcard src/gba/*.cpp)
 SRC        := $(ENGINE_SRC) $(GAME_SRC) $(GBA_SRC)
-OBJ        := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC))
 
-INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(LIBGBA)/include
+# Audio horneado. Los .c son 2 MB de PCM generados por tools/audio_bake.py a
+# partir de public/audio/*.wav, asi que no estan en el repositorio (ver
+# .gitignore) y este build los genera si faltan. La lista va escrita a mano y
+# no con $(wildcard): un wildcard sobre un directorio que todavia no existe se
+# evalua a vacio al leer el Makefile y el audio quedaria fuera de la ROM sin
+# que nada lo dijera.
+AUDIO_SYMS  := shot damage pickup level_up victory main_theme assault_theme
+AUDIO_DIR   := tools/audio_baked
+AUDIO_STAMP := $(AUDIO_DIR)/.baked
+AUDIO_SRC   := $(addprefix $(AUDIO_DIR)/,$(addsuffix .c,$(AUDIO_SYMS)))
+
+OBJ        := $(patsubst %.cpp,$(BUILD)/%.o,$(SRC)) \
+              $(patsubst %.c,$(BUILD)/%.o,$(AUDIO_SRC))
+
+INCLUDES := -Isrc/engine -Isrc/game -Isrc/gba -I$(AUDIO_DIR) -I$(LIBGBA)/include
 
 # -mthumb: el ARM7TDMI de la GBA ejecuta Thumb casi todo el tiempo (fase 6 del
 # plan pasa el bucle caliente a ARM aparte, con -marm por archivo). -specs=
@@ -67,13 +80,14 @@ ARCHFLAGS := -mthumb
 IWRAM_OBJ := $(BUILD)/src/engine/Raycaster.o \
              $(BUILD)/src/engine/Text.o \
              $(BUILD)/src/engine/Renderer.o \
-             $(BUILD)/src/engine/Framebuffer.o
+             $(BUILD)/src/engine/Framebuffer.o \
+             $(BUILD)/src/gba/Audio.o
 $(IWRAM_OBJ): ARCHFLAGS := -marm -mlong-calls
 
 # En la otra direccion no hace falta bandera: el enlazador inserta veneers
 # (saltos puente) automaticamente cuando un BL desde la ROM no alcanza IWRAM.
 
-.PHONY: all clean profile profile-maxfloor
+.PHONY: all clean profile profile-maxfloor audio
 
 all: $(TARGET).gba
 
@@ -93,6 +107,23 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
 
+# Los assets horneados se compilan con g++ igual que todo lo demas (g++ trata
+# un .c como C++): son solo arrays de int8_t y una declaracion extern, y asi
+# el enlazado no necesita ningun extern "C" de por medio.
+$(BUILD)/%.o: %.c $(AUDIO_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(ARCHFLAGS) -c $< -o $@
+
+# Un sello y no los siete .c como objetivo: si no, make llamaria al script una
+# vez por archivo. Se rehornea si cambia el script o cualquier WAV de origen.
+$(AUDIO_STAMP): tools/audio_bake.py $(wildcard public/audio/*.wav)
+	python3 tools/audio_bake.py > $(AUDIO_DIR)/report.json
+	@touch $@
+
+$(AUDIO_SRC): $(AUDIO_STAMP)
+
+audio: $(AUDIO_STAMP)
+
 $(TARGET).elf: $(OBJ)
 	$(CXX) $(OBJ) $(LDFLAGS) -o $@
 
@@ -100,5 +131,8 @@ $(TARGET).gba: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 	$(GBAFIX) $@
 
+# No se borra tools/audio_baked: rehornear son ~40 s de ffmpeg y los targets
+# "profile" dependen de clean, asi que se pagaria en cada medicion. Para
+# regenerarlo de cero: rm -rf tools/audio_baked && make -f Makefile.gba audio
 clean:
 	rm -rf $(BUILD) $(TARGET).elf $(TARGET).gba
