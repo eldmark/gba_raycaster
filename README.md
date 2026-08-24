@@ -165,15 +165,19 @@ emulador antes y después del cambio, nunca estimada:
 
 ### La cifra honesta
 
-Esa columna es **un frame**: el segundo después de cargar el primer archivo, con
-el jugador parado. Medido sobre 200 frames con el jugador girando y avanzando, y
-entrando también por el último archivo (mapa de 44×44 en vez de 28×28), sale
-otra cosa:
+Los **14,9 fps** de la última fila son **un solo frame medido**, siempre el
+mismo: el segundo después de cargar el primer archivo, con el jugador parado. Es
+la referencia que hace comparables las filas de la tabla, no lo que se ve
+jugando.
+
+**Jugando de verdad son 12-15 fps.** Medido sobre 200 frames con el jugador
+girando y avanzando, y entrando también por el último archivo (mapa de 44×44 en
+vez de 28×28):
 
 | Dónde | mín | máx | media |
 | --- | ---: | ---: | ---: |
-| Archivo 1 | 18,8 fps | 12,0 fps | **13,5 fps** |
-| Archivo 5 | 14,9 fps | 10,0 fps | **12,4 fps** |
+| Archivo 1 | 12,0 fps | 18,8 fps | **13,5 fps** |
+| Archivo 5 | 10,0 fps | 14,9 fps | **12,4 fps** |
 
 Lo que crece con el piso es el minimapa (de 90.527 a 161.930 ciclos, porque el
 mapa es más grande) y los sprites (de 25.808 a 97.944, porque hay más guardianes
